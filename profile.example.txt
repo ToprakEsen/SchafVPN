@@ -1,0 +1,1 @@
+vless://00000000-0000-0000-0000-000000000000@example.com:443?encryption=none&security=reality&sni=www.microsoft.com&fp=chrome&pbk=PUBLIC_KEY&sid=abcd&type=tcp&flow=xtls-rprx-vision#Sunucum

@@ -1,0 +1,15 @@
+# Kisisel VLESS profili: ASLA paylasma
+profile.txt
+
+# Derleme ciktilari (exe icinde profil gomulu olur)
+dist/
+bin/
+obj/
+
+# Cekirdekler: scripts\get-*.ps1 indirir ve SHA256 dogrular
+core/
+
+# IDE
+.vs/
+.vscode/
+*.user
