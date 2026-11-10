@@ -15,21 +15,27 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <Version>1.0.0</Version>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+    <!--
+      EmbedProfile: profile.txt varsa exe'ye gömülür (kur.bat ile kişisel derleme).
+      Yayın (release.ps1) her zaman EmbedProfile=false ile derler: dağıtılan exe'de profil OLMAZ.
+    -->
+    <EmbedProfile Condition="'$(EmbedProfile)' == ''">true</EmbedProfile>
   </PropertyGroup>
 
-  <!-- Gömülü kaynaklar: VLESS profili ve sing-box çekirdeği -->
   <ItemGroup>
-    <EmbeddedResource Include="profile.txt" LogicalName="profile.txt" />
     <EmbeddedResource Include="core\sing-box.exe" LogicalName="sing-box.exe" />
     <EmbeddedResource Include="core\xray.exe" LogicalName="xray.exe" />
     <EmbeddedResource Include="ui\index.html" LogicalName="index.html" />
   </ItemGroup>
+  <ItemGroup Condition="'$(EmbedProfile)' == 'true' And Exists('profile.txt')">
+    <EmbeddedResource Include="profile.txt" LogicalName="profile.txt" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
   </ItemGroup>
 
   <Target Name="CheckEmbeddedFiles" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('profile.txt')" Text="profile.txt bulunamadi. profile.example.txt dosyasini profile.txt olarak kopyalayip icine vless:// linkini yapistir." />
     <Error Condition="!Exists('core\sing-box.exe')" Text="core\sing-box.exe bulunamadi. Once scripts\get-singbox.ps1 calistir." />
     <Error Condition="!Exists('core\xray.exe')" Text="core\xray.exe bulunamadi. Once scripts\get-xray.ps1 calistir." />
   </Target>

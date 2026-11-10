@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Drawing.Drawing2D;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -11,10 +12,17 @@ public sealed class MainForm : Form
 {
     private static readonly Color Bg = Color.FromArgb(9, 11, 16);
 
+    /// <summary>Arayüzde sunucu adı yerine gösterilen sabit isim.</summary>
+    private const string ServerLabel = "KoyunVPN";
+
+    // Ekranda görünen (96 DPI) boyut; %150 ölçekte 690x1290 fiziksel piksel olur
+    private const int LogicalWidth = 460;
+    private const int LogicalHeight = 860;
+
     private readonly WebView2 _web;
     private readonly CoreRunner _core = new();
-    private readonly VlessProfile? _profile;
-    private readonly string? _profileError;
+    private VlessProfile? _profile;
+    private string? _profileError;
 
     private string _state = "idle";
     private long _connectedAt;
@@ -22,32 +30,71 @@ public sealed class MainForm : Form
     private CancellationTokenSource? _trafficCts;
     private int _ipGen;
 
-    public MainForm()
+    // tepsi
+    private readonly NotifyIcon _tray;
+    private readonly ToolStripMenuItem _trayToggle;
+    private readonly Icon _baseIcon;
+    private Icon? _trayIcon;
+    private bool _exiting;
+    private bool _trayHintShown;
+
+    // güncelleme
+    private readonly bool _justUpdated;
+    private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 6 * 60 * 60 * 1000 };
+    private UpdateInfo? _update;
+    private string? _updateFile;
+    private bool _updateBusy;
+
+    // ikinci kopyadan "göster" sinyali
+    private readonly EventWaitHandle _showEvent = new(false, EventResetMode.AutoReset, Program.ShowEventName);
+    private readonly RegisteredWaitHandle _showWait;
+
+    public MainForm(bool justUpdated = false)
     {
+        _justUpdated = justUpdated;
         Text = "SchafVPN";
         FormBorderStyle = FormBorderStyle.None; // başlık çubuğunu arayüz çiziyor
         AutoScaleMode = AutoScaleMode.None;     // boyutu OnLoad'da DPI'a göre biz ayarlıyoruz
         ClientSize = new Size(LogicalWidth, LogicalHeight);
         StartPosition = FormStartPosition.Manual;
         BackColor = Bg;
-        Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
+        _baseIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+        Icon = _baseIcon;
 
         _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Bg };
         Controls.Add(_web);
 
-        try { _profile = VlessProfile.Parse(CoreRunner.ReadEmbeddedProfile()); }
-        catch (Exception ex) { _profileError = ex.Message; }
+        LoadProfile();
 
+        // ---- tepsi simgesi
+        var menu = new ContextMenuStrip();
+        var open = new ToolStripMenuItem("SchafVPN'i aç", null, (_, _) => ShowFromTray()) { Font = new Font(SystemFonts.MenuFont ?? DefaultFont, FontStyle.Bold) };
+        _trayToggle = new ToolStripMenuItem("Bağlan", null, async (_, _) => await ToggleAsync());
+        var check = new ToolStripMenuItem("Güncellemeleri denetle", null, async (_, _) => await CheckForUpdateAsync(manual: true));
+        var exit = new ToolStripMenuItem("Çıkış", null, (_, _) => ExitApp());
+        menu.Items.AddRange([open, new ToolStripSeparator(), _trayToggle, new ToolStripSeparator(), check, exit]);
+        _tray = new NotifyIcon { Text = "SchafVPN", ContextMenuStrip = menu, Visible = true };
+        _tray.MouseClick += (_, e) => { if (e.Button == MouseButtons.Left) ShowFromTray(); };
+        _tray.BalloonTipClicked += (_, _) => ShowFromTray();
+        UpdateTray();
+
+        _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent,
+            (_, _) => { try { BeginInvoke(ShowFromTray); } catch { } }, null, -1, false);
+
+        _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync(manual: false);
         _core.Exited += (name, code) => { try { BeginInvoke(() => OnCoreExited(name, code)); } catch { } };
         Load += async (_, _) => await InitWebAsync();
     }
 
-    // Ekranda görünen (96 DPI) boyut; %150 ölçekte 690x1290 fiziksel piksel olur
-    /// <summary>Arayüzde sunucu adı yerine gösterilen sabit isim.</summary>
-    private const string ServerLabel = "KoyunVPN";
-
-    private const int LogicalWidth = 460;
-    private const int LogicalHeight = 860;
+    private void LoadProfile()
+    {
+        _profile = null;
+        _profileError = null;
+        var link = ProfileStore.Load();
+        if (link == null) return; // profil yok: arayüz kurulum ekranını açar
+        try { _profile = VlessProfile.Parse(link); }
+        catch (Exception ex) { _profileError = ex.Message; }
+    }
 
     protected override void OnLoad(EventArgs e)
     {
@@ -106,7 +153,7 @@ public sealed class MainForm : Form
             MessageBox.Show(this,
                 "Arayüz başlatılamadı. Microsoft Edge WebView2 Runtime gerekli:\nhttps://go.microsoft.com/fwlink/p/?LinkId=2124703\n\n" + ex.Message,
                 "SchafVPN", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            Close();
+            ExitApp();
             return;
         }
 
@@ -133,23 +180,43 @@ public sealed class MainForm : Form
 
     private async void OnWebMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
+        JsonElement msg;
         string cmd;
-        try { cmd = JsonDocument.Parse(e.WebMessageAsJson).RootElement.GetProperty("cmd").GetString() ?? ""; }
+        try
+        {
+            msg = JsonDocument.Parse(e.WebMessageAsJson).RootElement;
+            cmd = msg.GetProperty("cmd").GetString() ?? "";
+        }
         catch { return; }
 
         switch (cmd)
         {
             case "ready":
                 PushState();
+                Send(new { type = "version", version = Updater.Current.ToString(3) });
+                PushUpdate();
                 _ = RefreshIpAsync();
+                if (_justUpdated)
+                    Send(new { type = "notice", text = $"SchafVPN {Updater.Current.ToString(3)} sürümüne güncellendi." });
+                // ilk denetim açılıştan kısa süre sonra, sonra 6 saatte bir
+                _ = Task.Delay(4000).ContinueWith(_ => BeginInvoke(async () => await CheckForUpdateAsync(manual: false)));
+                _updateTimer.Start();
                 break;
             case "toggle": await ToggleAsync(); break;
+            case "saveProfile":
+                SaveProfile(msg.TryGetProperty("link", out var l) ? l.GetString() ?? "" : "");
+                break;
+            case "paste":
+                Send(new { type = "paste", text = Clipboard.ContainsText() ? Clipboard.GetText().Trim() : "" });
+                break;
+            case "applyUpdate": ApplyUpdate(restart: true); break;
+            case "checkUpdate": await CheckForUpdateAsync(manual: true); break;
             case "drag":
                 ReleaseCapture();
                 SendMessage(Handle, 0xA1 /* WM_NCLBUTTONDOWN */, (IntPtr)2 /* HTCAPTION */, IntPtr.Zero);
                 break;
             case "minimize": WindowState = FormWindowState.Minimized; break;
-            case "close": Close(); break;
+            case "close": HideToTray(); break;
             case "openLog":
                 if (Directory.Exists(CoreRunner.WorkDir))
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{CoreRunner.WorkDir}\"") { UseShellExecute = true });
@@ -163,17 +230,42 @@ public sealed class MainForm : Form
         _web.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(message));
     }
 
-    private void PushState(string? error = null, string? errorTitle = null) => Send(new
+    private void PushState(string? error = null, string? errorTitle = null)
     {
-        type = "state",
-        state = _state,
-        name = _profileError != null ? "Profil okunamadı" : ServerLabel,
-        detail = _profileError ?? _profile!.Detail,
-        profileError = _profileError != null,
-        connectedAt = _connectedAt,
-        error,
-        errorTitle,
-    });
+        Send(new
+        {
+            type = "state",
+            state = _state,
+            hasProfile = _profile != null || _profileError != null,
+            name = _profileError != null ? "Profil okunamadı" : ServerLabel,
+            detail = _profileError ?? _profile?.Detail ?? "VLESS",
+            profileError = _profileError != null,
+            connectedAt = _connectedAt,
+            error,
+            errorTitle,
+        });
+        UpdateTray();
+    }
+
+    private void SaveProfile(string link)
+    {
+        if (_state != "idle")
+        {
+            Send(new { type = "profileResult", ok = false, message = "Profili değiştirmek için önce bağlantıyı kes." });
+            return;
+        }
+        try
+        {
+            _profile = ProfileStore.Save(link);
+            _profileError = null;
+            Send(new { type = "profileResult", ok = true });
+            PushState();
+        }
+        catch (Exception ex)
+        {
+            Send(new { type = "profileResult", ok = false, message = ex.Message });
+        }
+    }
 
     /// <summary>Dışarıdan görünen IP ve konum (bağlıyken tünelden geçer).</summary>
     private async Task RefreshIpAsync(int delayMs = 0)
@@ -207,8 +299,9 @@ public sealed class MainForm : Form
 
     private async Task ToggleAsync()
     {
-        if (_state == "connecting" || _profile == null) return;
+        if (_state == "connecting") return;
         if (_state == "connected") { Disconnect(); return; }
+        if (_profile == null) { ShowFromTray(); PushState(); return; } // kurulum ekranı açılsın
 
         _state = "connecting";
         PushState();
@@ -231,6 +324,7 @@ public sealed class MainForm : Form
             _core.Stop();
             _state = "idle";
             PushState(ex.Message, "Bağlantı başlatılamadı");
+            if (!Visible) _tray.ShowBalloonTip(5000, "SchafVPN", "Bağlantı başlatılamadı.", ToolTipIcon.Error);
             _ = RefreshIpAsync(500);
         }
     }
@@ -255,6 +349,7 @@ public sealed class MainForm : Form
         var tail = CoreRunner.ReadLog(name == "xray" ? CoreRunner.XrayLog : CoreRunner.SingBoxLog, 4);
         PushState(string.IsNullOrWhiteSpace(tail) ? $"{name} kapandı (kod {code})." : tail,
                   "Bağlantı kesildi");
+        if (!Visible) _tray.ShowBalloonTip(5000, "SchafVPN", "VPN bağlantısı kesildi.", ToolTipIcon.Warning);
         _ = RefreshIpAsync(800);
     }
 
@@ -278,11 +373,165 @@ public sealed class MainForm : Form
         _trafficCts = null;
     }
 
+    // ---------------------------------------------------------------- güncelleme
+
+    private async Task CheckForUpdateAsync(bool manual)
+    {
+        if (_updateBusy) return;
+        _updateBusy = true;
+        try
+        {
+            if (manual) Send(new { type = "update", status = "checking" });
+            var info = await Updater.CheckAsync();
+            if (info == null)
+            {
+                if (manual)
+                {
+                    Send(new { type = "update", status = "none", version = Updater.Current.ToString(3) });
+                    if (!Visible) _tray.ShowBalloonTip(3000, "SchafVPN", $"En güncel sürümü kullanıyorsun ({Updater.Current.ToString(3)}).", ToolTipIcon.Info);
+                }
+                return;
+            }
+            if (_updateFile != null && _update?.Version == info.Version) { PushUpdate(); return; }
+
+            _update = info;
+            Send(new { type = "update", status = "downloading", version = info.Version.ToString(3), progress = 0.0 });
+            var progress = new Progress<double>(p =>
+                Send(new { type = "update", status = "downloading", version = info.Version.ToString(3), progress = p }));
+            _updateFile = await Updater.DownloadAsync(info, progress);
+            PushUpdate();
+            if (!Visible)
+                _tray.ShowBalloonTip(6000, "SchafVPN güncellemesi hazır",
+                    $"Sürüm {info.Version.ToString(3)} indirildi. Kurmak için tıkla.", ToolTipIcon.Info);
+        }
+        catch (Exception ex)
+        {
+            if (manual) Send(new { type = "update", status = "error", message = ex.Message });
+        }
+        finally { _updateBusy = false; }
+    }
+
+    private void PushUpdate()
+    {
+        if (_update != null && _updateFile != null)
+            Send(new { type = "update", status = "ready", version = _update.Version.ToString(3), connected = _state != "idle" });
+    }
+
+    /// <summary>İndirilen güncellemeyi uygular: uygulama kapanır, yeni exe yerine geçer.</summary>
+    private void ApplyUpdate(bool restart)
+    {
+        if (_updateFile == null || !File.Exists(_updateFile)) return;
+        try
+        {
+            Updater.ScheduleApply(_updateFile, restart);
+            _updateFile = null;
+            ExitApp(applyPending: false);
+        }
+        catch (Exception ex)
+        {
+            Send(new { type = "update", status = "error", message = "Güncelleme uygulanamadı: " + ex.Message });
+        }
+    }
+
+    // ---------------------------------------------------------------- tepsi
+
+    private void HideToTray()
+    {
+        Hide();
+        if (!_trayHintShown)
+        {
+            _trayHintShown = true;
+            _tray.ShowBalloonTip(4000, "SchafVPN arka planda çalışıyor",
+                "Açmak için gizli simgelerdeki koyuna tıkla. Kapatmak için sağ tık → Çıkış.", ToolTipIcon.Info);
+        }
+    }
+
+    private void ShowFromTray()
+    {
+        if (IsDisposed) return;
+        // bekleyen güncelleme balonuna tıklandıysa doğrudan göster
+        Show();
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        Activate();
+        BringToFront();
+    }
+
+    private void ExitApp(bool applyPending = true)
+    {
+        // kapanırken indirilmiş bir güncelleme varsa sessizce kur (yeniden başlatmadan)
+        if (applyPending && _updateFile != null && File.Exists(_updateFile))
+        {
+            try { Updater.ScheduleApply(_updateFile, restart: false); } catch { }
+        }
+        _exiting = true;
+        _tray.Visible = false;
+        Close();
+    }
+
+    private void UpdateTray()
+    {
+        string status = _state switch
+        {
+            "connected" => "Bağlı",
+            "connecting" => "Bağlanıyor…",
+            _ => "Bağlı değil",
+        };
+        _tray.Text = $"SchafVPN — {status}";
+        _trayToggle.Text = _state == "connected" ? "Bağlantıyı kes" : "Bağlan";
+        _trayToggle.Enabled = _state != "connecting";
+
+        Color? dot = _state switch
+        {
+            "connected" => Color.FromArgb(61, 220, 151),
+            "connecting" => Color.FromArgb(245, 181, 68),
+            _ => null,
+        };
+        var old = _trayIcon;
+        _trayIcon = MakeTrayIcon(dot);
+        _tray.Icon = _trayIcon;
+        if (old != null) { DestroyIcon(old.Handle); old.Dispose(); }
+    }
+
+    /// <summary>Uygulama simgesi + sağ altta durum noktası.</summary>
+    private Icon MakeTrayIcon(Color? dot)
+    {
+        var size = SystemInformation.SmallIconSize;
+        using var bmp = new Bitmap(size.Width, size.Height);
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+            using (var src = new Icon(_baseIcon, size)) g.DrawIcon(src, new Rectangle(Point.Empty, size));
+            if (dot is { } c)
+            {
+                float d = size.Width * 0.5f;
+                var r = new RectangleF(size.Width - d, size.Height - d, d - 0.5f, d - 0.5f);
+                using var ring = new SolidBrush(Color.FromArgb(9, 11, 16));
+                g.FillEllipse(ring, RectangleF.Inflate(r, 1f, 1f));
+                using var fill = new SolidBrush(c);
+                g.FillEllipse(fill, r);
+            }
+        }
+        return Icon.FromHandle(bmp.GetHicon());
+    }
+
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        // Çarpı / Alt+F4: tepsiye küçül. Windows kapanırken veya "Çıkış" ile gerçekten kapan.
+        if (!_exiting && e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            HideToTray();
+            return;
+        }
         _userStopping = true;
+        _updateTimer.Stop();
         StopTraffic();
         _core.Dispose();
+        _showWait.Unregister(null);
+        _showEvent.Dispose();
+        _tray.Visible = false;
+        _tray.Dispose();
         base.OnFormClosing(e);
     }
 
@@ -302,4 +551,7 @@ public sealed class MainForm : Form
 
     [DllImport("user32.dll")]
     private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyIcon(IntPtr hIcon);
 }

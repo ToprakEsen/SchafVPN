@@ -267,6 +267,92 @@
   }
   .tag.cc { color: #c9ccd6; }
   .row.bad .val { color: var(--err); }
+  .chg {
+    flex: none; font: 600 11.5px/1 var(--body); color: #aeb9ff; cursor: pointer;
+    padding: 6px 9px; border-radius: 8px; border: 0; background: transparent;
+  }
+  .chg:hover { background: rgba(124,149,255,.12); }
+  body:not([data-state="idle"]) .chg { display: none; }
+
+  .ver {
+    margin-left: 2px; padding: 3px 6px; border-radius: 6px;
+    font: 600 10.5px/1 var(--body); color: var(--faint); letter-spacing: .02em;
+    pointer-events: auto; cursor: pointer;
+  }
+  .ver:hover { color: var(--muted); background: var(--surface-2); }
+
+  /* ================= düğmeler ================= */
+  .btn {
+    font: 600 13px/1 var(--body); color: var(--text); cursor: pointer;
+    padding: 11px 16px; border-radius: 12px; border: 1px solid var(--line);
+    background: var(--surface-2); transition: background 120ms ease, transform 80ms ease;
+  }
+  .btn:hover { background: rgba(255,255,255,.1); }
+  .btn:active { transform: scale(.97); }
+  .btn.primary { background: #5b74f0; border-color: #6f86ff; color: #fff; }
+  .btn.primary:hover { background: #6a82ff; }
+  .btn.sm { padding: 8px 12px; font-size: 12px; border-radius: 10px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+
+  /* ================= profil kurulum ekranı ================= */
+  .setup {
+    position: fixed; left: 0; right: 0; top: 48px; bottom: 0; z-index: 8;
+    display: flex; align-items: center; justify-content: center; padding: 0 var(--gutter) 40px;
+    background:
+      radial-gradient(60% 40% at 50% 30%, rgba(124,149,255,.14), transparent 70%),
+      var(--bg);
+  }
+  .setup[hidden] { display: none; }
+  .setup-card { width: 100%; max-width: 380px; text-align: center; animation: enter 420ms var(--ease-out) both; }
+  .setup-logo { width: 76px; height: 76px; margin: 0 auto 22px; border-radius: 20px; overflow: hidden;
+    box-shadow: 0 16px 40px -12px rgba(90,115,255,.7); }
+  .setup-logo svg { display: block; width: 100%; height: 100%; }
+  .setup h2 { margin: 0 0 8px; font: 650 26px/1.15 var(--display); letter-spacing: -.025em; }
+  .setup p { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+  .setup p b { color: #cfd3dd; font-weight: 600; }
+  .setup textarea {
+    width: 100%; min-height: 96px; resize: none; padding: 12px 14px;
+    font: 12.5px/1.45 ui-monospace, "Cascadia Mono", Consolas, monospace; color: var(--text);
+    background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 14px;
+    outline: none; user-select: text; word-break: break-all;
+  }
+  .setup textarea:focus { border-color: rgba(124,149,255,.55); box-shadow: 0 0 0 3px rgba(124,149,255,.15); }
+  .setup-err { min-height: 20px; margin: 8px 2px 4px; text-align: left; color: var(--err); font-size: 12.5px; }
+  .setup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .setup .fine { margin: 18px 0 0; font-size: 11.5px; color: var(--faint); }
+  .linkbtn { margin-top: 12px; border: 0; background: none; color: var(--muted); font: 600 12.5px var(--body); cursor: pointer; }
+  .linkbtn:hover { color: var(--text); }
+
+  /* ================= güncelleme bandı ================= */
+  .upd {
+    position: fixed; left: 14px; right: 14px; bottom: 14px; z-index: 9;
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 12px 12px 14px; border-radius: 16px;
+    background: rgba(26, 31, 56, .9); border: 1px solid rgba(124,149,255,.35);
+    backdrop-filter: blur(24px) saturate(160%);
+    box-shadow: 0 18px 40px -12px rgba(0,0,0,.7);
+    transform: translateY(calc(100% + 24px)); transition: transform 480ms var(--ease-out);
+    overflow: hidden;
+  }
+  .upd.show { transform: none; }
+  .upd-ic { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    background: rgba(124,149,255,.18); color: #aeb9ff; }
+  .upd-ic svg { width: 17px; height: 17px; }
+  .upd-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .upd-txt b { font: 600 13.5px/1.25 var(--display); }
+  .upd-txt span { font-size: 12px; color: #a9b0c6; font-variant-numeric: tabular-nums; }
+  .upd-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: 0; background: #7c95ff; transition: width 300ms ease; }
+
+  /* ================= kısa bildirim ================= */
+  .notice {
+    position: fixed; left: 50%; top: 56px; z-index: 11;
+    transform: translate(-50%, -12px); opacity: 0; pointer-events: none;
+    max-width: calc(100% - 40px); padding: 10px 14px; border-radius: 12px;
+    background: rgba(30, 34, 46, .95); border: 1px solid var(--line);
+    font-size: 12.5px; color: #dfe2ea; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    transition: opacity 250ms ease, transform 350ms var(--ease-out);
+  }
+  .notice.show { opacity: 1; transform: translate(-50%, 0); }
 
   /* ================= hata bildirimi ================= */
   .toast {
@@ -351,13 +437,38 @@
         <circle cx="28.2" cy="36.5" r="2.4" fill="#fff"/><circle cx="35.8" cy="36.5" r="2.4" fill="#fff"/>
         <circle cx="28.7" cy="37" r="1.2" fill="#262b52"/><circle cx="36.3" cy="37" r="1.2" fill="#262b52"/>
       </svg></span>
-      SchafVPN
+      SchafVPN<span class="ver" id="ver" title="Güncellemeleri denetle"></span>
     </div>
     <div class="win">
       <button id="minBtn" aria-label="Küçült"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 6h8"/></svg></button>
       <button id="closeBtn" class="close" aria-label="Kapat"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
     </div>
   </header>
+
+  <div class="setup" id="setup" hidden>
+    <div class="setup-card">
+      <div class="setup-logo" id="setupLogo"></div>
+      <h2>Profilini ekle</h2>
+      <p>v2rayN'de sunucuna sağ tıklayıp <b>paylaşım linkini kopyala</b>, sonra buraya yapıştır.</p>
+      <textarea id="linkInput" placeholder="vless://…" spellcheck="false"></textarea>
+      <div class="setup-err" id="setupErr"></div>
+      <div class="setup-actions">
+        <button class="btn" id="pasteBtn">Panodan yapıştır</button>
+        <button class="btn primary" id="saveBtn">Kaydet</button>
+      </div>
+      <button class="linkbtn" id="cancelSetup" hidden>Vazgeç</button>
+      <p class="fine">Link yalnızca bu bilgisayarda, Windows hesabına özel şifrelenerek saklanır.</p>
+    </div>
+  </div>
+
+  <div class="upd" id="upd" role="status">
+    <div class="upd-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></svg></div>
+    <div class="upd-txt"><b id="updTitle">Güncelleme hazır</b><span id="updSub"></span></div>
+    <button class="btn primary sm" id="updBtn">Güncelle</button>
+    <div class="upd-bar" id="updBar"></div>
+  </div>
+
+  <div class="notice" id="notice"></div>
 
   <div class="toast" id="toast" role="alert">
     <h3 id="toastTitle">Bağlantı kesildi</h3>
@@ -413,6 +524,7 @@
     <div class="row" id="serverRow">
       <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
       <div class="txt"><div class="lbl" id="meta">VLESS</div><div class="val" id="name">—</div></div>
+      <button class="chg" id="chgBtn">Değiştir</button>
       <span class="tag">TUN</span>
     </div>
   </section>
@@ -424,7 +536,7 @@
 
   /* ---- pencere ---- */
   $('bar').addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || e.target.closest('button')) return;
+    if (e.button !== 0 || e.target.closest('button, .ver')) return;
     send({ cmd: 'drag' });
   });
   $('minBtn').addEventListener('click', () => send({ cmd: 'minimize' }));
@@ -608,6 +720,63 @@
   $('closeToast').addEventListener('click', hideToast);
   $('logBtn').addEventListener('click', () => send({ cmd: 'openLog' }));
 
+  /* ---- Kısa bildirim ---- */
+  let noticeTimer = 0;
+  function showNotice(text, ms = 3500) {
+    const n = $('notice');
+    n.textContent = text; n.classList.add('show');
+    clearTimeout(noticeTimer); noticeTimer = setTimeout(() => n.classList.remove('show'), ms);
+  }
+
+  /* ---- Profil kurulum ekranı ---- */
+  $('setupLogo').innerHTML = document.querySelector('.mark').innerHTML.replace(/id="lg(Bg|Wool)"/g, 'id="sl$1"').replace(/url\(#lg(Bg|Wool)\)/g, 'url(#sl$1)');
+  let setupForced = false;
+  function openSetup(cancellable) {
+    setupForced = !cancellable;
+    $('setupErr').textContent = '';
+    $('cancelSetup').hidden = !cancellable;
+    $('setup').hidden = false;
+    setTimeout(() => $('linkInput').focus(), 50);
+  }
+  function closeSetup() { $('setup').hidden = true; $('linkInput').value = ''; setupForced = false; }
+  $('chgBtn').addEventListener('click', () => openSetup(true));
+  $('cancelSetup').addEventListener('click', closeSetup);
+  $('pasteBtn').addEventListener('click', () => send({ cmd: 'paste' }));
+  $('saveBtn').addEventListener('click', () => {
+    const link = $('linkInput').value.trim();
+    if (!link) { $('setupErr').textContent = 'Önce linki yapıştır.'; return; }
+    if (!link.toLowerCase().startsWith('vless://')) { $('setupErr').textContent = "Link 'vless://' ile başlamalı."; return; }
+    $('saveBtn').disabled = true; $('setupErr').textContent = '';
+    send({ cmd: 'saveProfile', link });
+  });
+  $('linkInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('saveBtn').click(); } });
+
+  /* ---- Güncelleme ---- */
+  $('ver').addEventListener('click', () => send({ cmd: 'checkUpdate' }));
+  $('updBtn').addEventListener('click', () => { $('updBtn').disabled = true; $('updTitle').textContent = 'Güncelleniyor…'; send({ cmd: 'applyUpdate' }); });
+  function onUpdate(m) {
+    const upd = $('upd');
+    switch (m.status) {
+      case 'checking': showNotice('Güncellemeler denetleniyor…'); break;
+      case 'none': showNotice(`En güncel sürümü kullanıyorsun (v${m.version}).`); break;
+      case 'error': showNotice('Güncelleme denetlenemedi: ' + (m.message || ''), 5000); break;
+      case 'downloading':
+        $('updTitle').textContent = `SchafVPN ${m.version} indiriliyor`;
+        $('updSub').textContent = `%${Math.round((m.progress || 0) * 100)}`;
+        $('updBar').style.width = `${(m.progress || 0) * 100}%`;
+        $('updBtn').hidden = true;
+        upd.classList.add('show');
+        break;
+      case 'ready':
+        $('updTitle').textContent = `SchafVPN ${m.version} hazır`;
+        $('updSub').textContent = m.connected ? 'Güncellerken bağlantı birkaç saniye kesilir' : 'Yeniden başlatıp güncelle';
+        $('updBar').style.width = '0';
+        $('updBtn').hidden = false; $('updBtn').disabled = false;
+        upd.classList.add('show');
+        break;
+    }
+  }
+
   /* ---- C# mesajları ---- */
   if (window.chrome && chrome.webview) {
     chrome.webview.addEventListener('message', (e) => {
@@ -616,14 +785,29 @@
         if (m.name !== undefined) $('name').textContent = m.name;
         if (m.detail !== undefined) $('meta').textContent = m.detail;
         $('serverRow').classList.toggle('bad', !!m.profileError);
-        power.disabled = !!m.profileError;
+        power.disabled = !!m.profileError || m.hasProfile === false;
         if (m.connectedAt) connectedAt = m.connectedAt;
         setState(m.state);
+        if (m.hasProfile === false) openSetup(false);
+        else if (setupForced) closeSetup();
         if (m.error) showToast(m.errorTitle || 'Bağlantı kesildi', m.error);
       } else if (m.type === 'traffic' && state === 'connected') {
         onTraffic(m.up, m.down);
       } else if (m.type === 'ip') {
         onIp(m);
+      } else if (m.type === 'profileResult') {
+        $('saveBtn').disabled = false;
+        if (m.ok) { closeSetup(); showNotice('Profil kaydedildi.'); }
+        else $('setupErr').textContent = m.message || 'Link geçersiz.';
+      } else if (m.type === 'paste') {
+        if (m.text) $('linkInput').value = m.text;
+        else $('setupErr').textContent = 'Panoda metin yok.';
+      } else if (m.type === 'update') {
+        onUpdate(m);
+      } else if (m.type === 'version') {
+        $('ver').textContent = 'v' + m.version;
+      } else if (m.type === 'notice') {
+        showNotice(m.text, 5000);
       }
     });
   }

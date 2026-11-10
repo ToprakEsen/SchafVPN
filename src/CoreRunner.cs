@@ -34,18 +34,6 @@ public sealed class CoreRunner : IDisposable
     public int ClashPort { get; private set; }
     public string ClashSecret { get; private set; } = "";
 
-    public static string ReadEmbeddedProfile()
-    {
-        using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("profile.txt")
-                      ?? throw new InvalidOperationException("Gömülü profil bulunamadı.");
-        using var r = new StreamReader(s);
-        return r.ReadToEnd()
-                .Split('\n')
-                .Select(l => l.Trim())
-                .FirstOrDefault(l => l.StartsWith("vless://", StringComparison.OrdinalIgnoreCase))
-               ?? throw new InvalidOperationException("Gömülü profilde vless:// linki yok.");
-    }
-
     private static void Extract(string resource, string path)
     {
         using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource)

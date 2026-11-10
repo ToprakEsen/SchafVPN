@@ -2,17 +2,36 @@
 
 # SchafVPN
 
-Tek tuşlu, kendi VLESS profilini içine gömen Windows VPN istemcisi.
+Tek tuşlu, kendi VLESS profilinle TUN modunda çalışan Windows VPN istemcisi. Kendini otomatik günceller.
 
-## Kendi uygulamanı oluştur
+## Kurulum
+
+1. [**Releases**](https://github.com/ToprakEsen/SchafVPN/releases/latest) sayfasından `SchafVPN.exe` dosyasını indir.
+2. Çalıştır, UAC'ye **Evet** de.
+3. İlk açılışta v2rayN'den kopyaladığın `vless://...` linkini yapıştırıp **Kaydet**'e bas.
+4. **Bağlan**'a bas.
+
+- Link yalnızca senin bilgisayarında, Windows hesabına özel şifrelenerek (DPAPI) saklanır. Exe'nin içinde hiçbir profil yoktur.
+- Profili değiştirmek için alttaki sunucu satırındaki **Değiştir**'e bas.
+- **Çarpı** pencereyi gizli simgelere (sistem tepsisi) küçültür. Tepsideki koyuna sağ tıklayarak bağlanabilir veya **Çıkış** yapabilirsin.
+- Yeni sürüm yayınlandığında uygulama arka planda indirir ve **Güncelle** düğmesi gösterir.
+  Uygulamadan çıkarken indirilmiş bir güncelleme varsa sessizce kurulur.
+
+## Yeni sürüm yayınlama (geliştirici)
+
+```powershell
+.\release.ps1 -Version 1.2.0 -Notes "Neler değişti"
+```
+
+Script profilsiz exe derler, içinde kişisel profil olmadığını doğrular, sürüm numarasını commit'ler
+ve GitHub Release oluşturur. Uygulamayı kullanan herkes bu sürümü otomatik alır.
+
+## Kendin derle (isteğe bağlı)
 
 1. [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) kur (x64).
-2. Bu depoyu indir: **Code → Download ZIP** ve klasöre çıkar (ya da `git clone`).
-3. **`kur.bat`** dosyasına çift tıkla.
-4. v2rayN'den kopyaladığın `vless://...` linkini yapıştır ve Enter'a bas.
-5. Derleme bitince `dist\SchafVPN.exe` açılır. Çalıştır, UAC'ye **Evet** de ve **Bağlan**'a bas.
+2. **`kur.bat`** dosyasına çift tıkla, linkini yapıştır. `dist\SchafVPN.exe` oluşur.
 
-> Oluşan exe **senin VLESS linkini içerir**, başkasıyla paylaşma. Herkes kendi linkiyle `kur.bat` çalıştırmalı.
+> `kur.bat` ile derlenen exe linkini içine gömer (ilk açılışta şifreli depoya taşınır); başkasıyla paylaşma.
 
 ## Nasıl çalışır
 
