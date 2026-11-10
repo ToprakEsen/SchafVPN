@@ -38,6 +38,11 @@ public sealed class MainForm : Form
     private bool _exiting;
     private bool _trayHintShown;
 
+    // ayarlar
+    private readonly AppSettings _settings = AppSettings.Load();
+    private readonly bool _startHidden;
+    private bool _autoConnectDone;
+
     // güncelleme
     private readonly bool _justUpdated;
     private readonly System.Windows.Forms.Timer _updateTimer = new() { Interval = 6 * 60 * 60 * 1000 };
@@ -49,9 +54,11 @@ public sealed class MainForm : Form
     private readonly EventWaitHandle _showEvent = new(false, EventResetMode.AutoReset, Program.ShowEventName);
     private readonly RegisteredWaitHandle _showWait;
 
-    public MainForm(bool justUpdated = false)
+    public MainForm(bool justUpdated = false, bool startHidden = false)
     {
         _justUpdated = justUpdated;
+        _startHidden = startHidden;
+        if (startHidden) { Opacity = 0; ShowInTaskbar = false; } // Windows açılışında tepside başla
         Text = "SchafVPN";
         FormBorderStyle = FormBorderStyle.None; // başlık çubuğunu arayüz çiziyor
         AutoScaleMode = AutoScaleMode.None;     // boyutu OnLoad'da DPI'a göre biz ayarlıyoruz
@@ -81,7 +88,7 @@ public sealed class MainForm : Form
         _showWait = ThreadPool.RegisterWaitForSingleObject(_showEvent,
             (_, _) => { try { BeginInvoke(ShowFromTray); } catch { } }, null, -1, false);
 
-        _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync(manual: false);
+        _updateTimer.Tick += async (_, _) => { if (_settings.AutoUpdate) await CheckForUpdateAsync(manual: false); };
         _core.Exited += (name, code) => { try { BeginInvoke(() => OnCoreExited(name, code)); } catch { } };
         Load += async (_, _) => await InitWebAsync();
     }
@@ -101,6 +108,14 @@ public sealed class MainForm : Form
         base.OnLoad(e);
         FitToScreen();
         DpiChanged += (_, args) => Bounds = args.SuggestedRectangle; // başka monitöre taşınınca
+        if (_startHidden)
+        {
+            BeginInvoke(() => { Hide(); Opacity = 1; ShowInTaskbar = true; });
+            _trayHintShown = true;
+        }
+        // exe taşınmış/güncellenmiş olabilir: başlangıç görevini güncel yolla yenile
+        if (_settings.StartWithWindows)
+            _ = Task.Run(() => { try { StartupTask.Set(true); } catch { } });
     }
 
     /// <summary>Boyutu ekran ölçeğine göre ayarlar, ekrana sığdırır ve ortalar.</summary>
@@ -193,14 +208,24 @@ public sealed class MainForm : Form
         {
             case "ready":
                 PushState();
+                PushSettings();
                 Send(new { type = "version", version = Updater.Current.ToString(3) });
                 PushUpdate();
                 _ = RefreshIpAsync();
                 if (_justUpdated)
                     Send(new { type = "notice", text = $"SchafVPN {Updater.Current.ToString(3)} sürümüne güncellendi." });
                 // ilk denetim açılıştan kısa süre sonra, sonra 6 saatte bir
-                _ = Task.Delay(4000).ContinueWith(_ => BeginInvoke(async () => await CheckForUpdateAsync(manual: false)));
+                if (_settings.AutoUpdate)
+                    _ = Task.Delay(4000).ContinueWith(_ => BeginInvoke(async () => await CheckForUpdateAsync(manual: false)));
                 _updateTimer.Start();
+                if (_settings.AutoConnect && !_autoConnectDone && _profile != null && _state == "idle")
+                {
+                    _autoConnectDone = true;
+                    await ToggleAsync();
+                }
+                break;
+            case "setSetting":
+                ApplySetting(msg.GetProperty("key").GetString() ?? "", msg.GetProperty("value").GetBoolean());
                 break;
             case "toggle": await ToggleAsync(); break;
             case "saveProfile":
@@ -216,7 +241,9 @@ public sealed class MainForm : Form
                 SendMessage(Handle, 0xA1 /* WM_NCLBUTTONDOWN */, (IntPtr)2 /* HTCAPTION */, IntPtr.Zero);
                 break;
             case "minimize": WindowState = FormWindowState.Minimized; break;
-            case "close": HideToTray(); break;
+            case "close":
+                if (_settings.CloseToTray) HideToTray(); else ExitApp();
+                break;
             case "openLog":
                 if (Directory.Exists(CoreRunner.WorkDir))
                     Process.Start(new ProcessStartInfo("explorer.exe", $"\"{CoreRunner.WorkDir}\"") { UseShellExecute = true });
@@ -245,6 +272,42 @@ public sealed class MainForm : Form
             errorTitle,
         });
         UpdateTray();
+    }
+
+    private void PushSettings() => Send(new
+    {
+        type = "settings",
+        closeToTray = _settings.CloseToTray,
+        startWithWindows = _settings.StartWithWindows,
+        autoConnect = _settings.AutoConnect,
+        autoUpdate = _settings.AutoUpdate,
+    });
+
+    private void ApplySetting(string key, bool value)
+    {
+        try
+        {
+            switch (key)
+            {
+                case "closeToTray": _settings.CloseToTray = value; break;
+                case "autoConnect": _settings.AutoConnect = value; break;
+                case "autoUpdate":
+                    _settings.AutoUpdate = value;
+                    if (value) _ = CheckForUpdateAsync(manual: false);
+                    break;
+                case "startWithWindows":
+                    StartupTask.Set(value);
+                    _settings.StartWithWindows = value;
+                    break;
+                default: return;
+            }
+            _settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Send(new { type = "notice", text = "Ayar kaydedilemedi: " + ex.Message });
+        }
+        PushSettings(); // hata olduysa anahtar eski haline döner
     }
 
     private void SaveProfile(string link)
@@ -517,11 +580,12 @@ public sealed class MainForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
-        // Çarpı / Alt+F4: tepsiye küçül. Windows kapanırken veya "Çıkış" ile gerçekten kapan.
+        // Çarpı / Alt+F4: ayara göre tepsiye küçül ya da çık. Windows kapanırken gerçekten kapan.
         if (!_exiting && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
-            HideToTray();
+            if (_settings.CloseToTray) HideToTray();
+            else BeginInvoke(() => ExitApp());
             return;
         }
         _userStopping = true;

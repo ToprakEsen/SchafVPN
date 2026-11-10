@@ -27,6 +27,6 @@ internal static class Program
         }
 
         ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm(justUpdated: args.Contains("--updated")));
+        Application.Run(new MainForm(justUpdated: args.Contains("--updated"), startHidden: args.Contains("--tray")));
     }
 }

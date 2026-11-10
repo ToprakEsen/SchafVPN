@@ -323,6 +323,40 @@
   .linkbtn { margin-top: 12px; border: 0; background: none; color: var(--muted); font: 600 12.5px var(--body); cursor: pointer; }
   .linkbtn:hover { color: var(--text); }
 
+  /* ================= ayarlar ================= */
+  .settings {
+    position: fixed; left: 0; right: 0; top: 48px; bottom: 0; z-index: 7;
+    padding: 6px var(--gutter) var(--gutter); overflow-y: auto;
+    background: var(--bg);
+    animation: slidein 320ms var(--ease-out) both;
+  }
+  .settings[hidden] { display: none; }
+  @keyframes slidein { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+  .set-head { display: flex; align-items: center; gap: 6px; margin: 4px 0 14px -8px; }
+  .set-head h2 { margin: 0; font: 650 24px/1.1 var(--display); letter-spacing: -.025em; }
+  .back { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--muted);
+    display: grid; place-items: center; cursor: pointer; }
+  .back:hover { background: var(--surface-2); color: var(--text); }
+  .back svg { width: 18px; height: 18px; }
+  .group-lbl { margin: 18px 4px 8px; font: 600 11px/1 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .settings .list { margin-bottom: 4px; }
+  .settings .row { padding: 13px 16px; gap: 14px; }
+  .settings .row + .row::before { left: 16px; }
+  .settings .val { white-space: normal; }
+  .settings .lbl { margin-top: 2px; }
+  .sw-row { cursor: pointer; }
+  .sw { position: relative; flex: none; width: 44px; height: 26px; }
+  .sw input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+  .sw span { position: absolute; inset: 0; border-radius: 99px; background: rgba(255,255,255,.14); transition: background 200ms ease; pointer-events: none; }
+  .sw span::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%;
+    background: #fff; box-shadow: 0 2px 6px rgba(0,0,0,.4); transition: transform 260ms var(--ease-out);
+  }
+  .sw input:checked + span { background: #5b74f0; }
+  .sw input:checked + span::after { transform: translateX(18px); }
+  .sw input:focus-visible + span { box-shadow: 0 0 0 3px rgba(124,149,255,.45); }
+  .win button.on { background: var(--surface-2); color: var(--text); }
+
   /* ================= güncelleme bandı ================= */
   .upd {
     position: fixed; left: 14px; right: 14px; bottom: 14px; z-index: 9;
@@ -440,6 +474,7 @@
       SchafVPN<span class="ver" id="ver" title="Güncellemeleri denetle"></span>
     </div>
     <div class="win">
+      <button id="setBtn" aria-label="Ayarlar" title="Ayarlar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
       <button id="minBtn" aria-label="Küçült"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 6h8"/></svg></button>
       <button id="closeBtn" class="close" aria-label="Kapat"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7"/></svg></button>
     </div>
@@ -458,6 +493,49 @@
       </div>
       <button class="linkbtn" id="cancelSetup" hidden>Vazgeç</button>
       <p class="fine">Link yalnızca bu bilgisayarda, Windows hesabına özel şifrelenerek saklanır.</p>
+    </div>
+  </div>
+
+  <div class="settings" id="settings" hidden>
+    <div class="set-head">
+      <button class="back" id="setBack" aria-label="Geri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h2>Ayarlar</h2>
+    </div>
+
+    <div class="group-lbl">Pencere</div>
+    <div class="list">
+      <label class="row sw-row">
+        <div class="txt"><div class="val">Çarpı tuşu gizli simgelere küçültsün</div><div class="lbl">Kapalıysa çarpı uygulamayı tamamen kapatır.</div></div>
+        <span class="sw"><input type="checkbox" data-key="closeToTray"><span></span></span>
+      </label>
+      <label class="row sw-row">
+        <div class="txt"><div class="val">Windows açılınca başlat</div><div class="lbl">Oturum açıldığında gizli simgelerde başlar.</div></div>
+        <span class="sw"><input type="checkbox" data-key="startWithWindows"><span></span></span>
+      </label>
+    </div>
+
+    <div class="group-lbl">Bağlantı</div>
+    <div class="list">
+      <label class="row sw-row">
+        <div class="txt"><div class="val">Açılışta otomatik bağlan</div><div class="lbl">Uygulama açılınca VPN'i hemen başlatır.</div></div>
+        <span class="sw"><input type="checkbox" data-key="autoConnect"><span></span></span>
+      </label>
+      <div class="row">
+        <div class="txt"><div class="val">VLESS profili</div><div class="lbl" id="setProfile">—</div></div>
+        <button class="btn sm" id="setChg">Değiştir</button>
+      </div>
+    </div>
+
+    <div class="group-lbl">Güncelleme</div>
+    <div class="list">
+      <label class="row sw-row">
+        <div class="txt"><div class="val">Otomatik güncelleme</div><div class="lbl">Yeni sürümleri arka planda indirir.</div></div>
+        <span class="sw"><input type="checkbox" data-key="autoUpdate"><span></span></span>
+      </label>
+      <div class="row">
+        <div class="txt"><div class="val">Sürüm</div><div class="lbl" id="setVer">—</div></div>
+        <button class="btn sm" id="setCheck">Denetle</button>
+      </div>
     </div>
   </div>
 
@@ -751,6 +829,25 @@
   });
   $('linkInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('saveBtn').click(); } });
 
+  /* ---- Ayarlar ---- */
+  function openSettings() {
+    $('setProfile').textContent = $('meta').textContent;
+    $('setVer').textContent = $('ver').textContent || '—';
+    $('setChg').disabled = state !== 'idle';
+    $('settings').hidden = false; $('setBtn').classList.add('on');
+  }
+  function closeSettings() { $('settings').hidden = true; $('setBtn').classList.remove('on'); }
+  $('setBtn').addEventListener('click', () => $('settings').hidden ? openSettings() : closeSettings());
+  $('setBack').addEventListener('click', closeSettings);
+  $('setChg').addEventListener('click', () => openSetup(true));
+  $('setCheck').addEventListener('click', () => send({ cmd: 'checkUpdate' }));
+  document.querySelectorAll('.sw input').forEach((inp) =>
+    inp.addEventListener('change', () => send({ cmd: 'setSetting', key: inp.dataset.key, value: inp.checked })));
+  function onSettings(m) {
+    document.querySelectorAll('.sw input').forEach((inp) => { inp.checked = !!m[inp.dataset.key]; });
+  }
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('settings').hidden) closeSettings(); });
+
   /* ---- Güncelleme ---- */
   $('ver').addEventListener('click', () => send({ cmd: 'checkUpdate' }));
   $('updBtn').addEventListener('click', () => { $('updBtn').disabled = true; $('updTitle').textContent = 'Güncelleniyor…'; send({ cmd: 'applyUpdate' }); });
@@ -790,6 +887,7 @@
         setState(m.state);
         if (m.hasProfile === false) openSetup(false);
         else if (setupForced) closeSetup();
+        if (!$('settings').hidden) { $('setProfile').textContent = $('meta').textContent; $('setChg').disabled = state !== 'idle'; }
         if (m.error) showToast(m.errorTitle || 'Bağlantı kesildi', m.error);
       } else if (m.type === 'traffic' && state === 'connected') {
         onTraffic(m.up, m.down);
@@ -804,6 +902,8 @@
         else $('setupErr').textContent = 'Panoda metin yok.';
       } else if (m.type === 'update') {
         onUpdate(m);
+      } else if (m.type === 'settings') {
+        onSettings(m);
       } else if (m.type === 'version') {
         $('ver').textContent = 'v' + m.version;
       } else if (m.type === 'notice') {
