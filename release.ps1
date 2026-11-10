@@ -26,7 +26,7 @@ if (-not (Test-Path $gh)) { throw "GitHub CLI (gh) bulunamadi." }
 if (git status --porcelain) { throw "Commit edilmemis degisiklikler var. Once commit et (yayin, depodaki kodla ayni olmali)." }
 Invoke-Native { & $gh release view $tag } | Out-Null
 if ($LASTEXITCODE -eq 0) { throw "$tag zaten yayinlanmis." }
-$csproj = Get-Content SchafVPN.csproj -Raw
+$csproj = [IO.File]::ReadAllText("$PSScriptRoot\SchafVPN.csproj", [Text.Encoding]::UTF8)
 $current = [regex]::Match($csproj, '<Version>([^<]+)</Version>').Groups[1].Value
 if ([Version]$Version -le [Version]$current) { throw "Yeni surum ($Version) mevcut surumden ($current) buyuk olmali." }
 if (-not (Test-Path core\sing-box.exe)) { & "$PSScriptRoot\scripts\get-singbox.ps1" }
