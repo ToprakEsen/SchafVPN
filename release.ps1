@@ -10,6 +10,12 @@ Set-Location $PSScriptRoot
 [Environment]::CurrentDirectory = $PSScriptRoot
 
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Surum X.Y.Z biciminde olmali (or. 1.2.0)." }
+
+# Harici komut: stderr'e yazmasi hata sayilmasin (Windows PowerShell 5.1), sadece cikis kodu onemli
+function Invoke-Native([scriptblock]$cmd) {
+    $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    try { & $cmd 2>&1 | ForEach-Object { "$_" } } finally { $ErrorActionPreference = $prev }
+}
 $tag = "v$Version"
 
 $gh = (Get-Command gh -ErrorAction SilentlyContinue).Source
@@ -18,7 +24,7 @@ if (-not (Test-Path $gh)) { throw "GitHub CLI (gh) bulunamadi." }
 
 # ---- on kontroller
 if (git status --porcelain) { throw "Commit edilmemis degisiklikler var. Once commit et (yayin, depodaki kodla ayni olmali)." }
-& $gh release view $tag 2>$null | Out-Null
+Invoke-Native { & $gh release view $tag } | Out-Null
 if ($LASTEXITCODE -eq 0) { throw "$tag zaten yayinlanmis." }
 $csproj = Get-Content SchafVPN.csproj -Raw
 $current = [regex]::Match($csproj, '<Version>([^<]+)</Version>').Groups[1].Value
@@ -59,14 +65,16 @@ Write-Host "Dogrulandi: profil yok, surum $Version, SHA256 $sha"
 # ---- surum numarasini kaydet ve yayinla
 $csproj = $csproj -replace '<Version>[^<]+</Version>', "<Version>$Version</Version>"
 [IO.File]::WriteAllText("$PSScriptRoot\SchafVPN.csproj", $csproj, (New-Object Text.UTF8Encoding $false))
-git add SchafVPN.csproj
-git commit -q -m "Surum $Version"
-git push -q origin HEAD
+Invoke-Native { git add SchafVPN.csproj } | Out-Null
+Invoke-Native { git commit -q -m "Surum $Version" } | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "git commit basarisiz." }
+Invoke-Native { git push -q origin HEAD }
 if ($LASTEXITCODE -ne 0) { throw "git push basarisiz." }
 
 if (-not $Notes) { $Notes = "SchafVPN $Version" }
 $Notes += "`n`n**Kurulum:** ``SchafVPN.exe`` dosyasini indir ve calistir. Ilk acilista VLESS linkini gir.`nOnceki surumu kullananlar bu guncellemeyi uygulama icinden otomatik alir."
-& $gh release create $tag $exe "dist-release\SchafVPN.exe.sha256" --title "SchafVPN $Version" --notes $Notes --target (git rev-parse --abbrev-ref HEAD)
+$branch = git rev-parse --abbrev-ref HEAD
+Invoke-Native { & $gh release create $tag $exe "dist-release\SchafVPN.exe.sha256" --title "SchafVPN $Version" --notes $Notes --target $branch }
 if ($LASTEXITCODE -ne 0) { throw "GitHub Release olusturulamadi." }
 Write-Host ""
 Write-Host "Yayinlandi: $tag"
