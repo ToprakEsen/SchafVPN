@@ -13,11 +13,11 @@
     <AssemblyName>SchafVPN</AssemblyName>
     <RootNamespace>SchafVPN</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <!--
-      EmbedProfile: profile.txt varsa exe'ye gömülür (kur.bat ile kişisel derleme).
-      Yayın (release.ps1) her zaman EmbedProfile=false ile derler: dağıtılan exe'de profil OLMAZ.
+      EmbedProfile: profile.txt varsa exe'ye gÃ¶mÃ¼lÃ¼r (kur.bat ile kiÅŸisel derleme).
+      YayÄ±n (release.ps1) her zaman EmbedProfile=false ile derler: daÄŸÄ±tÄ±lan exe'de profil OLMAZ.
     -->
     <EmbedProfile Condition="'$(EmbedProfile)' == ''">true</EmbedProfile>
   </PropertyGroup>
