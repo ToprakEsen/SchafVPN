@@ -525,6 +525,10 @@
         <div class="txt"><div class="val">Her zaman açık VPN</div><div class="lbl">Telefon açılınca otomatik bağlanır (Android ayarı).</div></div>
         <button class="btn sm" id="setAlwaysOn">Aç</button>
       </div>
+      <div class="row android-only">
+        <div class="txt"><div class="val">Hızlı ayarlar kutucuğu</div><div class="lbl">Bildirim panelinden tek dokunuşla bağlan.</div></div>
+        <button class="btn sm" id="setTile">Ekle</button>
+      </div>
       <div class="row">
         <div class="txt"><div class="val">VLESS profili</div><div class="lbl" id="setProfile">—</div></div>
         <button class="btn sm" id="setChg">Değiştir</button>
@@ -847,6 +851,7 @@
   $('setChg').addEventListener('click', () => openSetup(true));
   $('setCheck').addEventListener('click', () => send({ cmd: 'checkUpdate' }));
   $('setAlwaysOn').addEventListener('click', () => send({ cmd: 'openVpnSettings' }));
+  $('setTile').addEventListener('click', () => send({ cmd: 'addTile' }));
   document.querySelectorAll('.sw input').forEach((inp) =>
     inp.addEventListener('change', () => send({ cmd: 'setSetting', key: inp.dataset.key, value: inp.checked })));
   function onSettings(m) {
