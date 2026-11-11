@@ -356,6 +356,7 @@
   .sw input:checked + span::after { transform: translateX(18px); }
   .sw input:focus-visible + span { box-shadow: 0 0 0 3px rgba(124,149,255,.45); }
   .win button.on { background: var(--surface-2); color: var(--text); }
+  .android-only { display: none !important; }
 
   /* ================= güncelleme bandı ================= */
   .upd {
@@ -502,8 +503,8 @@
       <h2>Ayarlar</h2>
     </div>
 
-    <div class="group-lbl">Pencere</div>
-    <div class="list">
+    <div class="group-lbl win-only">Pencere</div>
+    <div class="list win-only">
       <label class="row sw-row">
         <div class="txt"><div class="val">Çarpı tuşu gizli simgelere küçültsün</div><div class="lbl">Kapalıysa çarpı uygulamayı tamamen kapatır.</div></div>
         <span class="sw"><input type="checkbox" data-key="closeToTray"><span></span></span>
@@ -520,6 +521,10 @@
         <div class="txt"><div class="val">Açılışta otomatik bağlan</div><div class="lbl">Uygulama açılınca VPN'i hemen başlatır.</div></div>
         <span class="sw"><input type="checkbox" data-key="autoConnect"><span></span></span>
       </label>
+      <div class="row android-only">
+        <div class="txt"><div class="val">Her zaman açık VPN</div><div class="lbl">Telefon açılınca otomatik bağlanır (Android ayarı).</div></div>
+        <button class="btn sm" id="setAlwaysOn">Aç</button>
+      </div>
       <div class="row">
         <div class="txt"><div class="val">VLESS profili</div><div class="lbl" id="setProfile">—</div></div>
         <button class="btn sm" id="setChg">Değiştir</button>
@@ -841,6 +846,7 @@
   $('setBack').addEventListener('click', closeSettings);
   $('setChg').addEventListener('click', () => openSetup(true));
   $('setCheck').addEventListener('click', () => send({ cmd: 'checkUpdate' }));
+  $('setAlwaysOn').addEventListener('click', () => send({ cmd: 'openVpnSettings' }));
   document.querySelectorAll('.sw input').forEach((inp) =>
     inp.addEventListener('change', () => send({ cmd: 'setSetting', key: inp.dataset.key, value: inp.checked })));
   function onSettings(m) {
