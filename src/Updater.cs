@@ -37,18 +37,18 @@ public static class Updater
 
     /// <summary>
     /// Daha yeni bir sürüm varsa bilgisini, yoksa null döner; denetlenemezse hata fırlatır.
-    /// Önce GitHub API (SHA256 özeti verir); API saatlik IP sınırına takılırsa sınırsız
-    /// github.com/.../releases/latest yönlendirmesine düşer.
+    /// Önce github.com/.../releases/latest yönlendirmesi + .sha256 dosyası: GitHub API'nin
+    /// saatlik IP sınırına tabi değil. Yalnızca o başarısız olursa API denenir.
     /// </summary>
     public static async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
     {
-        Exception apiError;
-        try { return await CheckApiAsync(ct); }
-        catch (Exception e) when (e is not OperationCanceledException) { apiError = e; }
+        Exception redirectError;
         try { return await CheckRedirectAsync(ct); }
+        catch (Exception e) when (e is not OperationCanceledException) { redirectError = e; }
+        try { return await CheckApiAsync(ct); }
         catch (Exception e) when (e is not OperationCanceledException)
         {
-            throw new InvalidOperationException($"GitHub'a ulaşılamadı ({apiError.Message}; {e.Message})");
+            throw new InvalidOperationException($"GitHub'a ulaşılamadı ({redirectError.Message}; {e.Message})");
         }
     }
 
