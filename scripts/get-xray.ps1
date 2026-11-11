@@ -1,4 +1,4 @@
-# Xray-core Windows cekirdegini indirir, SHA256 dogrular ve core\xray.exe olarak koyar.
+# Xray-core Windows paketini indirir, SHA256 dogrular; core\xray.exe ve (TUN icin) core\wintun.dll cikarir.
 param(
     [string]$Version = "26.10.31",
     [string]$Sha256  = "2e04a9995a6f2ad1b28c0bb25c708ecb2695e43a1c9c7889c4b6ac2b48cf7a6a"
@@ -23,7 +23,8 @@ try {
     Expand-Archive -Path $zip -DestinationPath (Join-Path $tmp "x")
     New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
     Copy-Item (Join-Path $tmp "x\xray.exe") (Join-Path $coreDir "xray.exe") -Force
-    Write-Host "Tamam: $coreDir\xray.exe"
+    Copy-Item (Join-Path $tmp "x\wintun.dll") (Join-Path $coreDir "wintun.dll") -Force
+    Write-Host "Tamam: $coreDir\xray.exe, wintun.dll"
 }
 finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

@@ -2,10 +2,9 @@
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-if (-not (Test-Path "core\sing-box.exe")) { & "$PSScriptRoot\scripts\get-singbox.ps1" }
-if (-not (Test-Path "core\xray.exe")) { & "$PSScriptRoot\scripts\get-xray.ps1" }
+if (-not (Test-Path "core\xray.exe") -or -not (Test-Path "core\wintun.dll")) { & "$PSScriptRoot\scripts\get-xray.ps1" }
 if (-not (Test-Path "profile.txt")) {
-    throw "profile.txt yok. profile.example.txt dosyasini profile.txt olarak kopyalayip vless:// linkini yapistir."
+    Write-Host "Not: profil gomulmuyor; uygulama ilk acilista VLESS linkini soracak."
 }
 
 dotnet publish SchafVPN.csproj -c Release -r win-x64 --self-contained true `

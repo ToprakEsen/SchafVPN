@@ -42,7 +42,7 @@ public static class ProfileStore
     {
         link = link.Trim();
         var profile = VlessProfile.Parse(link);
-        profile.BuildXrayConfig("x", 1, "u", "p"); // eksik alan varsa (ör. pbk) burada yakalansın
+        profile.BuildXrayConfig("x", ipv6: true); // eksik alan varsa (ör. pbk) burada yakalansın
         Directory.CreateDirectory(CoreRunner.WorkDir);
         var data = ProtectedData.Protect(Encoding.UTF8.GetBytes(link), Entropy, DataProtectionScope.CurrentUser);
         File.WriteAllBytes(StorePath, data);

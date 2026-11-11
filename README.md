@@ -39,11 +39,14 @@ ve GitHub Release oluşturur. Uygulamayı kullanan herkes bu sürümü otomatik 
 ## Nasıl çalışır
 
 - Açılışta yönetici izni (UAC) ister: TUN arayüzü ve rota tablosu için şart.
-- Çekirdekler uygulamanın içine gömülü (v2rayN'in TUN modundaki yapı):
-  - **Xray** v26.10.31: VLESS bağlantısı (Reality, ML-KEM şifreleme, xhttp...)
-  - **sing-box** v1.14.4: TUN arayüzü, rota ve DNS; trafiği yerel SOCKS üzerinden Xray'e verir
+- Tek çekirdek, uygulamanın içine gömülü: **Xray** v26.10.31 (Android sürümüyle aynı yapı).
+  VLESS bağlantısını (Reality, ML-KEM şifreleme, xhttp...) da TUN arayüzünü de Xray kurar;
+  TUN sürücüsü olarak yanında `wintun.dll` (WireGuard LLC imzalı) gelir.
 - Varsayılan mod **TUN**: tüm sistem trafiği VPN'den geçer, yerel ağ (192.168.x.x vb.) doğrudan gider.
-- DNS: Cloudflare DoH (1.1.1.1) tünel üzerinden.
+- DNS: 1.1.1.1, tünel üzerinden. Windows'un DNS sorgularını diğer ağ arayüzlerinden sızdırması
+  Xray'in WFP filtresiyle engellenir.
+- Bağlanırken sunucunun gerçekten trafik geçirdiği doğrulanır; geçirmiyorsa "Bağlandı" denmez.
+- VLESS bilgileri diske düz metin yazılmaz: profil DPAPI ile şifreli durur, Xray'e ayar bellekten verilir.
 
 ## Elle derleme
 
@@ -73,9 +76,9 @@ v2rayN'de linki almak için: sunucuya sağ tık → **Paylaşım linkini panoya 
 | `src/` | C# (WinForms + WebView2) |
 | `ui/index.html` | Arayüz |
 | `assets/` | Logo (`logo.svg`) ve uygulama simgesi (`app.ico`) |
-| `scripts/` | Çekirdekleri indirip SHA256 doğrulayan scriptler |
+| `scripts/` | Xray paketini indirip SHA256 doğrulayan script |
 
-Çalışma klasörü: `%LOCALAPPDATA%\SchafVPN\` → çekirdekler, config'ler, `xray.log`, `sing-box.log`.
-Uygulama kapanınca (çökse bile) çekirdekler de kapanır ve internet normale döner.
+Çalışma klasörü: `%LOCALAPPDATA%\SchafVPN\` → `xray.exe`, `wintun.dll`, `xray.log`, şifreli profil ve ayarlar.
+Uygulama kapanınca (çökse bile) Xray de kapanır.
 
 > `profile.txt` ve derlenen exe sunucu bilgilerini içerir; paylaşma ve bir git deposuna koyma.

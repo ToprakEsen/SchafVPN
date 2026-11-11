@@ -1,179 +1,188 @@
 using System.Diagnostics;
-using System.Net;
-using System.Net.Sockets;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text;
+using Microsoft.Win32;
 
 namespace SchafVPN;
 
 /// <summary>
-/// Gömülü çekirdekleri çıkarır ve yönetir:
-///   Xray     -> VLESS bağlantısı (yerel SOCKS 127.0.0.1:rastgele)
-///   sing-box -> TUN arayüzü, rota, DNS; trafiği Xray'in SOCKS'una verir
+/// Gömülü Xray çekirdeğini çıkarır ve yönetir. VLESS bağlantısını da TUN arayüzünü de
+/// (rota, DNS, DNS sızıntı engeli) tek süreç olarak Xray kurar; wintun.dll onun yanında durur.
 /// </summary>
 public sealed class CoreRunner : IDisposable
 {
     public static readonly string WorkDir =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SchafVPN");
 
-    private static string SingBoxExe => Path.Combine(WorkDir, "sing-box.exe");
     private static string XrayExe => Path.Combine(WorkDir, "xray.exe");
-    public static string SingBoxLog => Path.Combine(WorkDir, "sing-box.log");
+    private static string WintunDll => Path.Combine(WorkDir, "wintun.dll");
     public static string XrayLog => Path.Combine(WorkDir, "xray.log");
 
     private readonly JobObject _job = new();
     private Process? _xray;
-    private Process? _singbox;
 
-    /// <summary>Beklenmedik kapanma: (hangi çekirdek, çıkış kodu)</summary>
-    public event Action<string, int>? Exited;
+    /// <summary>Xray kendiliğinden kapandı (çıkış kodu).</summary>
+    public event Action<int>? Exited;
 
-    public bool IsRunning => _xray is { HasExited: false } && _singbox is { HasExited: false };
+    /// <summary>Bağlanma aşaması değişti (arayüzde gösterilir).</summary>
+    public event Action<string>? Stage;
 
-    public int ClashPort { get; private set; }
-    public string ClashSecret { get; private set; } = "";
+    public bool IsRunning => _xray is { HasExited: false };
 
+    /// <summary>
+    /// Gömülü dosyayı diske çıkarır. Uygulama yönetici olarak çalıştığı için, kullanıcı
+    /// klasöründeki exe her seferinde özetle doğrulanır; değiştirilmişse üzerine yazılır.
+    /// </summary>
     private static void Extract(string resource, string path)
     {
         using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(resource)
                       ?? throw new InvalidOperationException($"Gömülü {resource} bulunamadı.");
-        using var ms = new MemoryStream();
-        s.CopyTo(ms);
-        var bytes = ms.ToArray();
+        var expected = SHA256.HashData(s);
         if (File.Exists(path))
         {
             using var existing = File.OpenRead(path);
-            if (SHA256.HashData(existing).AsSpan().SequenceEqual(SHA256.HashData(bytes))) return;
+            if (existing.Length == s.Length && SHA256.HashData(existing).AsSpan().SequenceEqual(expected)) return;
         }
-        File.WriteAllBytes(path, bytes);
+        s.Position = 0;
+        using var dst = File.Create(path);
+        s.CopyTo(dst);
     }
 
-    private static int FreePort()
+    /// <summary>Önceki (sing-box'lı) sürümlerden kalan dosyalar; xray.json düz metin link içerirdi.</summary>
+    private static void CleanupLegacy()
     {
-        var l = new TcpListener(IPAddress.Loopback, 0);
-        l.Start();
-        int port = ((IPEndPoint)l.LocalEndpoint).Port;
-        l.Stop();
-        return port;
+        foreach (var name in new[] { "sing-box.exe", "sing-box.json", "sing-box.log", "xray.json", "config.json" })
+        {
+            try { File.Delete(Path.Combine(WorkDir, name)); } catch { }
+        }
     }
 
-    private static string RandomToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
+    /// <summary>Sistemde IPv6 tamamen kapatılmışsa TUN'a IPv6 girdisi verilmemeli (Xray başlamaz).</summary>
+    private static bool Ipv6Enabled()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters");
+            if (key?.GetValue("DisabledComponents") is int v && (v & 0xFF) == 0xFF) return false;
+        }
+        catch { }
+        return System.Net.Sockets.Socket.OSSupportsIPv6;
+    }
 
     public async Task StartAsync(VlessProfile profile, CancellationToken ct = default)
     {
         if (IsRunning) return;
         Stop();
 
+        Stage?.Invoke("Çekirdek hazırlanıyor");
         Directory.CreateDirectory(WorkDir);
-        Extract("xray.exe", XrayExe);
-        Extract("sing-box.exe", SingBoxExe);
-        foreach (var f in new[] { SingBoxLog, XrayLog }) { try { File.Delete(f); } catch { } }
+        CleanupLegacy();
+        await Task.Run(() =>
+        {
+            Extract("xray.exe", XrayExe);
+            Extract("wintun.dll", WintunDll);
+        }, ct);
+        try { File.Delete(XrayLog); } catch { }
 
-        int socksPort = FreePort();
-        string socksUser = RandomToken(), socksPass = RandomToken();
-        ClashPort = FreePort();
-        ClashSecret = RandomToken();
+        // Config diske yazılmaz: içinde VLESS bilgileri var, Xray'e stdin'den verilir
+        var config = profile.BuildXrayConfig(XrayLog, Ipv6Enabled());
 
-        var xrayCfg = Path.Combine(WorkDir, "xray.json");
-        var sbCfg = Path.Combine(WorkDir, "sing-box.json");
-        File.WriteAllText(xrayCfg, profile.BuildXrayConfig(XrayLog, socksPort, socksUser, socksPass));
-        File.WriteAllText(sbCfg, profile.BuildSingBoxConfig(SingBoxLog, ClashPort, ClashSecret, socksPort, socksUser, socksPass));
+        Stage?.Invoke("Xray başlatılıyor");
+        _xray = Launch(config);
 
-        // 1) Xray: SOCKS portu dinlemeye başlayana kadar bekle
-        _xray = Launch(XrayExe, $"run -c \"{xrayCfg}\"", "xray");
-        if (!await WaitForPortAsync(socksPort, _xray, TimeSpan.FromSeconds(10), ct))
-            throw new InvalidOperationException(FailMessage("Xray başlatılamadı", XrayLog, _xray));
-
-        // 2) sing-box: TUN arayüzü
-        _singbox = Launch(SingBoxExe, $"run -c \"{sbCfg}\" -D \"{WorkDir}\"", "sing-box");
-        var deadline = DateTime.UtcNow.AddSeconds(15);
-        while (DateTime.UtcNow < deadline)
+        Stage?.Invoke("Tünel kuruluyor");
+        var deadline = DateTime.UtcNow.AddSeconds(25);
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
-            if (_singbox.HasExited)
-                throw new InvalidOperationException(FailMessage("TUN arayüzü açılamadı", SingBoxLog, _singbox));
-            if (ReadLog(SingBoxLog).Contains("sing-box started", StringComparison.Ordinal) ||
-                NetworkInterfaceUp("SchafVPN")) break;
-            await Task.Delay(200, ct);
+            if (_xray.HasExited)
+                throw new InvalidOperationException(FailMessage("Xray başlatılamadı", _xray));
+            // Xray "started" satırını tüm girişler (TUN, rotalar, filtreler) hazır olunca yazar
+            if (TunInterfaceUp() && ReadLog(XrayLog).Contains("started", StringComparison.Ordinal)) break;
+            if (DateTime.UtcNow > deadline)
+                throw new InvalidOperationException(FailMessage("Tünel arayüzü zamanında açılmadı", _xray));
+            await Task.Delay(150, ct);
         }
-        // log seviyesi warn olduğunda "started" yazmayabilir; arayüz kontrolü yeterli
-        await Task.Delay(300, ct);
-        if (_singbox.HasExited)
-            throw new InvalidOperationException(FailMessage("TUN arayüzü açılamadı", SingBoxLog, _singbox));
     }
 
-    private static bool NetworkInterfaceUp(string name) =>
-        System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
-            .Any(n => n.Name == name && n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up);
+    private static bool TunInterfaceUp() =>
+        NetworkInterface.GetAllNetworkInterfaces()
+            .Any(n => n.Name == VlessProfile.TunName && n.OperationalStatus == OperationalStatus.Up);
 
-    private static string FailMessage(string title, string log, Process p)
+    private static string FailMessage(string title, Process p)
     {
-        var tail = ReadLog(log, 4);
-        var code = p.HasExited ? $" (kod {p.ExitCode})" : "";
+        var tail = ReadLog(XrayLog, 4);
+        var code = p.HasExited ? $" (kod {SafeExitCode(p)})" : "";
         return string.IsNullOrWhiteSpace(tail) ? title + code + "." : $"{title}{code}:\n{tail}";
     }
 
-    private Process Launch(string exe, string args, string name)
+    private Process Launch(string config)
     {
         var p = new Process
         {
-            StartInfo = new ProcessStartInfo(exe, args)
+            StartInfo = new ProcessStartInfo(XrayExe, "run -c stdin:")
             {
                 UseShellExecute = false,
-                CreateNoWindow = true,
+                CreateNoWindow = true,          // penceresiz ama konsollu: Ctrl+C gönderebilmek için
+                RedirectStandardInput = true,
+                StandardInputEncoding = new UTF8Encoding(false),
                 WorkingDirectory = WorkDir,
             },
             EnableRaisingEvents = true,
         };
         p.Exited += (_, _) =>
         {
-            // Stop() sırasında alanlar null'lanır; o durumda olay bildirilmez
-            if (ReferenceEquals(p, _xray) || ReferenceEquals(p, _singbox))
-                Exited?.Invoke(name, SafeExitCode(p));
+            // Stop() sırasında alan null'lanır; o durumda olay bildirilmez
+            if (ReferenceEquals(p, _xray)) Exited?.Invoke(SafeExitCode(p));
         };
         p.Start();
-        _job.Assign(p); // uygulama çökse bile çekirdekler kapanır
+        _job.Assign(p); // uygulama çökse bile Xray kapanır
+        p.StandardInput.Write(config);
+        p.StandardInput.Close();
         return p;
     }
 
     private static int SafeExitCode(Process p) { try { return p.ExitCode; } catch { return -1; } }
 
-    private static async Task<bool> WaitForPortAsync(int port, Process p, TimeSpan timeout, CancellationToken ct)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        while (DateTime.UtcNow < deadline)
-        {
-            if (p.HasExited) return false;
-            try
-            {
-                using var c = new TcpClient();
-                await c.ConnectAsync(IPAddress.Loopback, port, ct);
-                return true;
-            }
-            catch (SocketException) { await Task.Delay(150, ct); }
-        }
-        return false;
-    }
-
+    /// <summary>
+    /// Xray'i durdurur. Önce Ctrl+C: Xray rotaları, DNS'i, WFP filtrelerini ve fiziksel
+    /// arayüzdeki ayarı yalnızca düzgün çıkışta geri alır. Yanıt vermezse zorla kapatılır.
+    /// </summary>
     public void Stop()
     {
-        // önce sing-box (TUN + rotalar kalksın), sonra Xray
-        var sb = _singbox; var xr = _xray;
-        _singbox = null; _xray = null;
-        Kill(sb);
-        Kill(xr);
-    }
-
-    private static void Kill(Process? p)
-    {
+        var p = _xray;
+        _xray = null;
         if (p == null) return;
         try
         {
-            if (!p.HasExited) { p.Kill(entireProcessTree: true); p.WaitForExit(5000); }
+            if (!p.HasExited)
+            {
+                bool graceful = SendCtrlC(p) && p.WaitForExit(5000);
+                if (!graceful && !p.HasExited) { p.Kill(entireProcessTree: true); p.WaitForExit(3000); }
+            }
         }
         catch { }
         finally { p.Dispose(); }
+    }
+
+    private static readonly object ConsoleLock = new();
+
+    private static bool SendCtrlC(Process p)
+    {
+        lock (ConsoleLock)
+        {
+            // Bu uygulamanın kendi konsolu yok; Xray'in (gizli) konsoluna geçici olarak bağlanılır
+            if (!AttachConsole((uint)p.Id)) return false;
+            try
+            {
+                SetConsoleCtrlHandler(IntPtr.Zero, true); // aynı Ctrl+C bu süreci etkilemesin (kalıcı; GUI için zararsız)
+                return GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
+            }
+            finally { FreeConsole(); }
+        }
     }
 
     public static string ReadLog(string path, int lastLines = 0)
@@ -195,7 +204,21 @@ public sealed class CoreRunner : IDisposable
         _job.Dispose();
     }
 
-    // ---------------------------------------------------------------- Job Object
+    // ---------------------------------------------------------------- Win32
+
+    private const uint CTRL_C_EVENT = 0;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(uint dwProcessId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
 
     private sealed class JobObject : IDisposable
     {

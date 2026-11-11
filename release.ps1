@@ -29,8 +29,7 @@ if ($LASTEXITCODE -eq 0) { throw "$tag zaten yayinlanmis." }
 $csproj = [IO.File]::ReadAllText("$PSScriptRoot\SchafVPN.csproj", [Text.Encoding]::UTF8)
 $current = [regex]::Match($csproj, '<Version>([^<]+)</Version>').Groups[1].Value
 if ([Version]$Version -le [Version]$current) { throw "Yeni surum ($Version) mevcut surumden ($current) buyuk olmali." }
-if (-not (Test-Path core\sing-box.exe)) { & "$PSScriptRoot\scripts\get-singbox.ps1" }
-if (-not (Test-Path core\xray.exe))     { & "$PSScriptRoot\scripts\get-xray.ps1" }
+if (-not (Test-Path core\xray.exe) -or -not (Test-Path core\wintun.dll)) { & "$PSScriptRoot\scripts\get-xray.ps1" }
 
 # ---- profilsiz derleme
 Remove-Item -Recurse -Force bin, obj, dist-release -ErrorAction SilentlyContinue

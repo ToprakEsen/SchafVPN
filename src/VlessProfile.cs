@@ -6,10 +6,8 @@ using System.Web;
 namespace SchafVPN;
 
 /// <summary>
-/// vless:// paylaşım linkini çözümler ve iki config üretir:
-///  - Xray: VLESS bağlantısını kurar (ML-KEM şifreleme, Reality, xhttp... hepsi Xray'de)
-///  - sing-box: TUN arayüzü + rota + DNS; trafiği yerel SOCKS üzerinden Xray'e verir
-/// v2rayN'in TUN modundaki yapıyla aynı.
+/// vless:// paylaşım linkini çözümler ve Xray config'ini üretir. TUN arayüzünü, sistem
+/// rotalarını ve DNS'i de Xray'in kendi TUN girişi yönetir (Android sürümüyle aynı yapı).
 /// </summary>
 public sealed class VlessProfile
 {
@@ -109,10 +107,24 @@ public sealed class VlessProfile
 
     // ================================================================ Xray
 
-    public string BuildXrayConfig(string logPath, int socksPort, string socksUser, string socksPass)
+    /// <summary>TUN arayüzünün adı (ağ bağlantılarında görünür; trafik sayaçları buradan okunur).</summary>
+    public const string TunName = "SchafVPN";
+
+    /// <summary>
+    /// Xray'in Windows TUN girişi + VLESS çıkışı.
+    /// - gateway / dns / autoSystemRoutingTable: adresi, DNS'i ve varsayılan rotaları Xray kurar ve kaldırır.
+    /// - Xray'in kendi bağlantıları varsayılan olarak fiziksel arayüze bağlanır (tünele geri girmez).
+    /// - autoSystemWfpBlockLeak "dns": Windows'un DNS sorgularını diğer arayüzlerden sızdırmasını engeller.
+    /// <paramref name="ipv6"/> false ise (sistemde IPv6 kapalı) IPv6 girdileri eklenmez; yoksa TUN başlamaz.
+    /// </summary>
+    public string BuildXrayConfig(string logPath, bool ipv6)
     {
         var user = new JsonObject { ["id"] = Uuid, ["encryption"] = Encryption };
         if (!string.IsNullOrEmpty(Flow)) user["flow"] = Flow;
+
+        var gateway = new List<string> { "172.19.0.1/30" };
+        var routes = new List<string> { "0.0.0.0/0" };
+        if (ipv6) { gateway.Add("fdfe:dcba:9876::1/126"); routes.Add("::/0"); }
 
         var config = new JsonObject
         {
@@ -121,16 +133,37 @@ public sealed class VlessProfile
             {
                 new JsonObject
                 {
-                    ["tag"] = "socks-in",
-                    ["listen"] = "127.0.0.1",
-                    ["port"] = socksPort,
-                    ["protocol"] = "socks",
+                    ["tag"] = "tun-in",
+                    ["port"] = 0,
+                    ["protocol"] = "tun",
                     ["settings"] = new JsonObject
                     {
-                        ["auth"] = "password",
-                        ["accounts"] = new JsonArray { new JsonObject { ["user"] = socksUser, ["pass"] = socksPass } },
-                        ["udp"] = true,
-                        ["ip"] = "127.0.0.1",
+                        ["name"] = TunName,
+                        ["mtu"] = 1500,
+                        ["gateway"] = Arr(gateway),
+                        ["dns"] = Arr(["1.1.1.1"]),
+                        ["autoSystemRoutingTable"] = Arr(routes),
+                        ["autoSystemWfpBlockLeak"] = Arr(["dns"]),
+                    },
+                    ["sniffing"] = new JsonObject
+                    {
+                        ["enabled"] = true,
+                        ["destOverride"] = Arr(["http", "tls", "quic"]),
+                        ["routeOnly"] = true,
+                    },
+                },
+            },
+            ["routing"] = new JsonObject
+            {
+                ["domainStrategy"] = "AsIs",
+                ["rules"] = new JsonArray
+                {
+                    new JsonObject
+                    {
+                        ["type"] = "field",
+                        ["ip"] = Arr(["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8",
+                                      "169.254.0.0/16", "fc00::/7", "fe80::/10"]),
+                        ["outboundTag"] = "direct",
                     },
                 },
             },
@@ -233,94 +266,4 @@ public sealed class VlessProfile
     }
 
     private static string OrSlash(string p) => string.IsNullOrEmpty(p) ? "/" : p;
-
-    // ================================================================ sing-box (TUN)
-
-    public string BuildSingBoxConfig(string logPath, int clashPort, string clashSecret,
-                                     int socksPort, string socksUser, string socksPass)
-    {
-        var routeRules = new JsonArray
-        {
-            new JsonObject { ["action"] = "sniff" },
-            new JsonObject { ["protocol"] = "dns", ["action"] = "hijack-dns" },
-            // Xray'in sunucuya giden kendi trafiği tünele geri girmesin
-            new JsonObject { ["process_name"] = Arr(["xray.exe"]), ["outbound"] = "direct" },
-            new JsonObject { ["ip_is_private"] = true, ["outbound"] = "direct" },
-        };
-        var dnsRules = new JsonArray
-        {
-            new JsonObject { ["process_name"] = Arr(["xray.exe"]), ["server"] = "dns-direct" },
-        };
-
-        if (IPAddress.TryParse(Host, out var ip))
-        {
-            var cidr = ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"{ip}/128" : $"{ip}/32";
-            routeRules.Insert(3, new JsonObject { ["ip_cidr"] = Arr([cidr]), ["outbound"] = "direct" });
-        }
-        else
-        {
-            dnsRules.Add(new JsonObject { ["domain"] = Arr([Host]), ["server"] = "dns-direct" });
-            routeRules.Insert(3, new JsonObject { ["domain"] = Arr([Host]), ["outbound"] = "direct" });
-        }
-
-        var config = new JsonObject
-        {
-            ["log"] = new JsonObject { ["level"] = "warn", ["timestamp"] = true, ["output"] = logPath },
-            ["experimental"] = new JsonObject
-            {
-                ["clash_api"] = new JsonObject
-                {
-                    ["external_controller"] = $"127.0.0.1:{clashPort}",
-                    ["secret"] = clashSecret,
-                },
-            },
-            ["dns"] = new JsonObject
-            {
-                ["servers"] = new JsonArray
-                {
-                    new JsonObject { ["type"] = "https", ["tag"] = "dns-remote", ["server"] = "1.1.1.1", ["detour"] = "proxy" },
-                    new JsonObject { ["type"] = "udp", ["tag"] = "dns-direct", ["server"] = "1.1.1.1" },
-                },
-                ["rules"] = dnsRules,
-                ["final"] = "dns-remote",
-                ["strategy"] = "ipv4_only",
-            },
-            ["inbounds"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["type"] = "tun",
-                    ["tag"] = "tun-in",
-                    ["interface_name"] = "SchafVPN",
-                    ["address"] = Arr(["172.19.0.1/30", "fdfe:dcba:9876::1/126"]),
-                    ["mtu"] = 9000,
-                    ["auto_route"] = true,
-                    ["strict_route"] = true,
-                    ["stack"] = "mixed",
-                },
-            },
-            ["outbounds"] = new JsonArray
-            {
-                new JsonObject
-                {
-                    ["type"] = "socks",
-                    ["tag"] = "proxy",
-                    ["server"] = "127.0.0.1",
-                    ["server_port"] = socksPort,
-                    ["version"] = "5",
-                    ["username"] = socksUser,
-                    ["password"] = socksPass,
-                },
-                new JsonObject { ["type"] = "direct", ["tag"] = "direct" },
-            },
-            ["route"] = new JsonObject
-            {
-                ["rules"] = routeRules,
-                ["final"] = "proxy",
-                ["auto_detect_interface"] = true,
-                ["default_domain_resolver"] = "dns-direct",
-            },
-        };
-        return config.ToJsonString(Indented);
-    }
 }

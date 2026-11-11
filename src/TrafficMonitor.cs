@@ -1,41 +1,30 @@
-using System.Net.Http.Headers;
-using System.Text.Json;
+using System.Net.NetworkInformation;
 
 namespace SchafVPN;
 
-/// <summary>sing-box Clash API'sinin /traffic akışından anlık hızları okur.</summary>
+/// <summary>TUN arayüzünün bayt sayaçlarından saniyelik indirme/yükleme hızını okur.</summary>
 public static class TrafficMonitor
 {
-    public static async Task RunAsync(int port, string secret, Action<long, long> onSample, CancellationToken ct)
+    public static async Task RunAsync(string interfaceName, Action<long, long> onSample, CancellationToken ct)
     {
-        using var http = new HttpClient(new HttpClientHandler { UseProxy = false })
+        long lastRx = -1, lastTx = -1;
+        try
         {
-            Timeout = Timeout.InfiniteTimeSpan,
-        };
-        http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", secret);
-        var url = $"http://127.0.0.1:{port}/traffic";
-
-        while (!ct.IsCancellationRequested)
-        {
-            try
+            while (!ct.IsCancellationRequested)
             {
-                using var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-                resp.EnsureSuccessStatusCode();
-                using var reader = new StreamReader(await resp.Content.ReadAsStreamAsync(ct));
-                string? line;
-                while ((line = await reader.ReadLineAsync(ct)) != null)
+                var nic = NetworkInterface.GetAllNetworkInterfaces().FirstOrDefault(n => n.Name == interfaceName);
+                if (nic != null)
                 {
-                    if (line.Length == 0) continue;
-                    using var doc = JsonDocument.Parse(line);
-                    var root = doc.RootElement;
-                    onSample(root.GetProperty("up").GetInt64(), root.GetProperty("down").GetInt64());
+                    // Sistemin arayüze gönderdiği = yükleme, arayüzden aldığı = indirme
+                    var s = nic.GetIPStatistics();
+                    long rx = s.BytesReceived, tx = s.BytesSent;
+                    if (lastRx >= 0 && rx >= lastRx && tx >= lastTx) onSample(tx - lastTx, rx - lastRx);
+                    lastRx = rx; lastTx = tx;
                 }
-            }
-            catch (OperationCanceledException) { return; }
-            catch
-            {
-                try { await Task.Delay(1000, ct); } catch (OperationCanceledException) { return; }
+                else { lastRx = lastTx = -1; }
+                await Task.Delay(1000, ct);
             }
         }
+        catch (OperationCanceledException) { }
     }
 }

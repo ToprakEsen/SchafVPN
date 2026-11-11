@@ -23,8 +23,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="core\sing-box.exe" LogicalName="sing-box.exe" />
     <EmbeddedResource Include="core\xray.exe" LogicalName="xray.exe" />
+    <EmbeddedResource Include="core\wintun.dll" LogicalName="wintun.dll" />
     <EmbeddedResource Include="ui\index.html" LogicalName="index.html" />
   </ItemGroup>
   <ItemGroup Condition="'$(EmbedProfile)' == 'true' And Exists('profile.txt')">
@@ -36,8 +36,7 @@
   </ItemGroup>
 
   <Target Name="CheckEmbeddedFiles" BeforeTargets="PrepareForBuild">
-    <Error Condition="!Exists('core\sing-box.exe')" Text="core\sing-box.exe bulunamadi. Once scripts\get-singbox.ps1 calistir." />
-    <Error Condition="!Exists('core\xray.exe')" Text="core\xray.exe bulunamadi. Once scripts\get-xray.ps1 calistir." />
+    <Error Condition="!Exists('core\xray.exe') Or !Exists('core\wintun.dll')" Text="core\xray.exe veya core\wintun.dll bulunamadi. Once scripts\get-xray.ps1 calistir." />
   </Target>
 
 </Project>

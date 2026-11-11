@@ -27,6 +27,7 @@ public sealed class MainForm : Form
     private string _state = "idle";
     private long _connectedAt;
     private bool _userStopping;
+    private bool _stopping;
     private CancellationTokenSource? _trafficCts;
     private int _ipGen;
 
@@ -89,7 +90,8 @@ public sealed class MainForm : Form
             (_, _) => { try { BeginInvoke(ShowFromTray); } catch { } }, null, -1, false);
 
         _updateTimer.Tick += async (_, _) => { if (_settings.AutoUpdate) await CheckForUpdateAsync(manual: false); };
-        _core.Exited += (name, code) => { try { BeginInvoke(() => OnCoreExited(name, code)); } catch { } };
+        _core.Exited += code => { try { BeginInvoke(() => OnCoreExited(code)); } catch { } };
+        _core.Stage += text => { try { BeginInvoke(() => Send(new { type = "stage", text })); } catch { } };
         Load += async (_, _) => await InitWebAsync();
     }
 
@@ -362,8 +364,8 @@ public sealed class MainForm : Form
 
     private async Task ToggleAsync()
     {
-        if (_state == "connecting") return;
-        if (_state == "connected") { Disconnect(); return; }
+        if (_state == "connecting" || _stopping) return;
+        if (_state == "connected") { await DisconnectAsync(); return; }
         if (_profile == null) { ShowFromTray(); PushState(); return; } // kurulum ekranı açılsın
 
         _state = "connecting";
@@ -375,16 +377,23 @@ public sealed class MainForm : Form
             _userStopping = false;
             if (!_core.IsRunning) throw new InvalidOperationException("Çekirdek beklenmedik şekilde kapandı.");
 
+            // Tünel kalktı diye "bağlandı" deme: sunucunun gerçekten trafik geçirdiğini doğrula
+            Send(new { type = "stage", text = "Bağlantı doğrulanıyor" });
+            if (!await VerifyTunnelAsync())
+                throw new InvalidOperationException(
+                    "Sunucuya ulaşılamadı. Sunucu kapalı olabilir, link hatalı olabilir ya da ağın bu bağlantıyı engelliyor olabilir.");
+            if (!_core.IsRunning) throw new InvalidOperationException("Çekirdek beklenmedik şekilde kapandı.");
+
             _state = "connected";
             _connectedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             PushState();
             StartTraffic();
-            _ = RefreshIpAsync(800);
+            _ = RefreshIpAsync(300);
         }
         catch (Exception ex)
         {
             _userStopping = true;
-            _core.Stop();
+            await StopCoreAsync();
             _state = "idle";
             PushState(ex.Message, "Bağlantı başlatılamadı");
             if (!Visible) _tray.ShowBalloonTip(5000, "SchafVPN", "Bağlantı başlatılamadı.", ToolTipIcon.Error);
@@ -392,27 +401,61 @@ public sealed class MainForm : Form
         }
     }
 
-    private void Disconnect()
+    /// <summary>
+    /// Tünel üzerinden küçük bir istek atar (tüm trafik TUN'a yönlendiği için tünelden geçer).
+    /// Herhangi bir HTTP yanıtı yeterlidir; ~9 saniye içinde yanıt yoksa false.
+    /// </summary>
+    private static async Task<bool> VerifyTunnelAsync()
+    {
+        string[] urls = ["https://www.gstatic.com/generate_204", "https://cp.cloudflare.com/generate_204"];
+        var deadline = DateTime.UtcNow.AddSeconds(9);
+        for (int i = 0; DateTime.UtcNow < deadline; i++)
+        {
+            try
+            {
+                using var http = new HttpClient(new SocketsHttpHandler
+                {
+                    UseProxy = false,
+                    PooledConnectionLifetime = TimeSpan.Zero,
+                    ConnectTimeout = TimeSpan.FromSeconds(4),
+                }) { Timeout = TimeSpan.FromSeconds(4) };
+                using var resp = await http.GetAsync(urls[i % urls.Length], HttpCompletionOption.ResponseHeadersRead);
+                return true;
+            }
+            catch { await Task.Delay(400); }
+        }
+        return false;
+    }
+
+    /// <summary>Xray'in düzgün kapanması (rota/filtre geri alma) bir saniye sürebilir: arayüzü dondurma.</summary>
+    private async Task StopCoreAsync()
+    {
+        _stopping = true;
+        try { await Task.Run(_core.Stop); }
+        finally { _stopping = false; }
+    }
+
+    private async Task DisconnectAsync()
     {
         _userStopping = true;
         StopTraffic();
-        _core.Stop();
         _state = "idle";
         PushState();
-        _ = RefreshIpAsync(800);
+        await StopCoreAsync();
+        _ = RefreshIpAsync(300);
     }
 
-    private void OnCoreExited(string name, int code)
+    private async void OnCoreExited(int code)
     {
         if (_userStopping || IsDisposed || _state != "connected") return;
         _userStopping = true;
         StopTraffic();
-        _core.Stop();
         _state = "idle";
-        var tail = CoreRunner.ReadLog(name == "xray" ? CoreRunner.XrayLog : CoreRunner.SingBoxLog, 4);
-        PushState(string.IsNullOrWhiteSpace(tail) ? $"{name} kapandı (kod {code})." : tail,
+        var tail = CoreRunner.ReadLog(CoreRunner.XrayLog, 4);
+        PushState(string.IsNullOrWhiteSpace(tail) ? $"Xray kapandı (kod {code})." : tail,
                   "Bağlantı kesildi");
         if (!Visible) _tray.ShowBalloonTip(5000, "SchafVPN", "VPN bağlantısı kesildi.", ToolTipIcon.Warning);
+        await StopCoreAsync();
         _ = RefreshIpAsync(800);
     }
 
@@ -421,12 +464,12 @@ public sealed class MainForm : Form
         StopTraffic();
         _trafficCts = new CancellationTokenSource();
         var ct = _trafficCts.Token;
-        _ = TrafficMonitor.RunAsync(_core.ClashPort, _core.ClashSecret,
+        _ = Task.Run(() => TrafficMonitor.RunAsync(VlessProfile.TunName,
             (up, down) =>
             {
                 if (ct.IsCancellationRequested || IsDisposed) return;
                 try { BeginInvoke(() => Send(new { type = "traffic", up, down })); } catch { }
-            }, ct);
+            }, ct));
     }
 
     private void StopTraffic()
