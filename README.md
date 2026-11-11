@@ -4,6 +4,9 @@
 
 Tek tuşlu, kendi VLESS profilinle TUN modunda çalışan Windows VPN istemcisi. Kendini otomatik günceller.
 
+> 📱 **Android sürümü:** [SchafVPN-Android](https://github.com/ToprakEsen/SchafVPN-Android)
+> ([APK indir](https://github.com/ToprakEsen/SchafVPN-Android/releases/latest))
+
 ## Kurulum
 
 1. [**Releases**](https://github.com/ToprakEsen/SchafVPN/releases/latest) sayfasından `SchafVPN.exe` dosyasını indir.
