@@ -35,14 +35,54 @@ public static class Updater
         return http;
     }
 
-    /// <summary>Daha yeni bir sürüm varsa bilgisini, yoksa null döner.</summary>
+    /// <summary>
+    /// Daha yeni bir sürüm varsa bilgisini, yoksa null döner; denetlenemezse hata fırlatır.
+    /// Önce GitHub API (SHA256 özeti verir); API saatlik IP sınırına takılırsa sınırsız
+    /// github.com/.../releases/latest yönlendirmesine düşer.
+    /// </summary>
     public static async Task<UpdateInfo?> CheckAsync(CancellationToken ct = default)
+    {
+        Exception apiError;
+        try { return await CheckApiAsync(ct); }
+        catch (Exception e) when (e is not OperationCanceledException) { apiError = e; }
+        try { return await CheckRedirectAsync(ct); }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            throw new InvalidOperationException($"GitHub'a ulaşılamadı ({apiError.Message}; {e.Message})");
+        }
+    }
+
+    private static async Task<UpdateInfo?> CheckRedirectAsync(CancellationToken ct)
+    {
+        using var http = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromSeconds(15) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"SchafVPN-Updater/{Current}");
+        using var resp = await http.GetAsync($"https://github.com/{Repo}/releases/latest", ct);
+        var location = resp.Headers.Location?.ToString();
+        if ((int)resp.StatusCode / 100 != 3 || location == null)
+            throw new InvalidOperationException($"releases/latest HTTP {(int)resp.StatusCode}");
+        int i = location.LastIndexOf("/tag/", StringComparison.Ordinal);
+        if (i < 0) return null; // hiç sürüm yok
+        var rawTag = location[(i + 5)..];
+        if (!Version.TryParse(rawTag.TrimStart('v', 'V'), out var latest)) return null;
+        latest = new Version(latest.Major, latest.Minor, Math.Max(latest.Build, 0));
+        if (latest <= Current) return null;
+
+        var url = $"https://github.com/{Repo}/releases/download/{rawTag}/{AssetName}";
+        using var dl = NewClient(TimeSpan.FromSeconds(15));
+        var sha = (await dl.GetStringAsync(url + ".sha256", ct)).Trim().Split(' ', '\t', '\n')[0];
+        if (sha.Length != 64) throw new InvalidDataException("SHA256 dosyası geçersiz.");
+        return new UpdateInfo(latest, url, sha.ToLowerInvariant(), 0, "");
+    }
+
+    private static async Task<UpdateInfo?> CheckApiAsync(CancellationToken ct)
     {
         using var http = NewClient(TimeSpan.FromSeconds(15));
         using var req = new HttpRequestMessage(HttpMethod.Get, $"https://api.github.com/repos/{Repo}/releases/latest");
         req.Headers.Accept.ParseAdd("application/vnd.github+json");
         using var resp = await http.SendAsync(req, ct);
-        if (!resp.IsSuccessStatusCode) return null; // henüz sürüm yok (404) veya limit
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return null; // henüz sürüm yok
+        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"API HTTP {(int)resp.StatusCode}");
         using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(ct));
         var root = doc.RootElement;
 
