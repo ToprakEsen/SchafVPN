@@ -13,7 +13,7 @@
     <AssemblyName>SchafVPN</AssemblyName>
     <RootNamespace>SchafVPN</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
     <!--
       EmbedProfile: profile.txt varsa exe'ye gömülür (kur.bat ile kişisel derleme).
