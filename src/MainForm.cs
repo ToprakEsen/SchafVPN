@@ -10,7 +10,11 @@ namespace SchafVPN;
 
 public sealed class MainForm : Form
 {
-    private static readonly Color Bg = Color.FromArgb(9, 11, 16);
+    // ui/index.html içindeki --bg ile aynı renkler (pencere, sayfa yüklenmeden önce de doğru renkte olsun)
+    private static readonly Color DarkBg = Color.FromArgb(9, 11, 16);
+    private static readonly Color LightBg = Color.FromArgb(242, 244, 249);
+    private bool _light;
+    private Color Bg => _light ? LightBg : DarkBg;
 
     /// <summary>Arayüzde sunucu adı yerine gösterilen sabit isim.</summary>
     private const string ServerLabel = "KoyunVPN";
@@ -65,6 +69,7 @@ public sealed class MainForm : Form
         AutoScaleMode = AutoScaleMode.None;     // boyutu OnLoad'da DPI'a göre biz ayarlıyoruz
         ClientSize = new Size(LogicalWidth, LogicalHeight);
         StartPosition = FormStartPosition.Manual;
+        _light = ResolveLight();
         BackColor = Bg;
         _baseIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
         Icon = _baseIcon;
@@ -92,7 +97,52 @@ public sealed class MainForm : Form
         _updateTimer.Tick += async (_, _) => { if (_settings.AutoUpdate) await CheckForUpdateAsync(manual: false); };
         _core.Exited += code => { try { BeginInvoke(() => OnCoreExited(code)); } catch { } };
         _core.Stage += text => { try { BeginInvoke(() => Send(new { type = "stage", text })); } catch { } };
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged += OnSystemPreferenceChanged;
         Load += async (_, _) => await InitWebAsync();
+    }
+
+    // ---------------------------------------------------------------- tema
+
+    private bool ResolveLight() => _settings.Theme switch
+    {
+        "light" => true,
+        "dark" => false,
+        _ => SystemUsesLightTheme(),
+    };
+
+    private static bool SystemUsesLightTheme()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int v && v != 0;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>Windows'ta açık/koyu mod değişince ("Sistem" seçiliyse) arayüz de değişsin.</summary>
+    private void OnSystemPreferenceChanged(object? sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+    {
+        if (e.Category != Microsoft.Win32.UserPreferenceCategory.General || _settings.Theme != "system") return;
+        try { BeginInvoke(() => { if (ResolveLight() != _light) ApplyTheme(); }); } catch { }
+    }
+
+    private void ApplyTheme()
+    {
+        _light = ResolveLight();
+        BackColor = Bg;
+        _web.DefaultBackgroundColor = Bg;
+        if (IsHandleCreated) ApplyWindowTheme();
+        Send(new { type = "theme", theme = _light ? "light" : "dark" });
+    }
+
+    private void ApplyWindowTheme()
+    {
+        int v = _light ? 0 : 1;
+        DwmSetWindowAttribute(Handle, 20, ref v, sizeof(int));          // koyu/açık pencere çerçevesi
+        v = _light ? 0x00E3D9D5 : 0x00302A26;                           // ince kenarlık (#d5d9e3 / #262a30)
+        DwmSetWindowAttribute(Handle, 34, ref v, sizeof(int));
     }
 
     private void LoadProfile()
@@ -146,14 +196,11 @@ public sealed class MainForm : Form
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
-        int v = 1;
-        DwmSetWindowAttribute(Handle, 20, ref v, sizeof(int));          // koyu mod
-        v = 2;
+        int v = 2;
         DwmSetWindowAttribute(Handle, 2, ref v, sizeof(int));           // DWM çizimi açık -> gölge
         v = 2;
         DwmSetWindowAttribute(Handle, 33, ref v, sizeof(int));          // Windows 11 yuvarlak köşe
-        v = 0x00302A26;                                                 // ince kenarlık (#262a30)
-        DwmSetWindowAttribute(Handle, 34, ref v, sizeof(int));
+        ApplyWindowTheme();
         var m = new MARGINS { Left = 1, Right = 1, Top = 1, Bottom = 1 };
         DwmExtendFrameIntoClientArea(Handle, ref m);
     }
@@ -186,11 +233,13 @@ public sealed class MainForm : Form
         _web.CoreWebView2.NavigateToString(LoadHtml());
     }
 
-    private static string LoadHtml()
+    private string LoadHtml()
     {
         using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("index.html")!;
         using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
+        var html = reader.ReadToEnd();
+        // Tema sayfa yüklenmeden atanır: açılışta koyu→açık yanıp sönme olmasın
+        return _light ? html.Replace("<html lang=\"tr\">", "<html lang=\"tr\" data-theme=\"light\">") : html;
     }
 
     // ---------------------------------------------------------------- web <-> C#
@@ -209,6 +258,7 @@ public sealed class MainForm : Form
         switch (cmd)
         {
             case "ready":
+                Send(new { type = "theme", theme = _light ? "light" : "dark" });
                 PushState();
                 PushSettings();
                 Send(new { type = "version", version = Updater.Current.ToString(3) });
@@ -223,8 +273,20 @@ public sealed class MainForm : Form
                 if (_settings.AutoConnect && !_autoConnectDone && _profile != null && _state == "idle")
                 {
                     _autoConnectDone = true;
-                    await ToggleAsync();
+                    // Windows açılışında ağ henüz hazır olmayabilir; bağlantı doğrulaması boşuna başarısız olmasın
+                    await WaitForNetworkAsync(TimeSpan.FromSeconds(30));
+                    if (_state == "idle") await ToggleAsync();
                 }
+                break;
+            case "setTheme":
+                var pref = msg.TryGetProperty("value", out var tv) ? tv.GetString() : null;
+                if (pref is "system" or "dark" or "light")
+                {
+                    _settings.Theme = pref;
+                    try { _settings.Save(); } catch { }
+                    ApplyTheme();
+                }
+                PushSettings();
                 break;
             case "setSetting":
                 ApplySetting(msg.GetProperty("key").GetString() ?? "", msg.GetProperty("value").GetBoolean());
@@ -283,7 +345,22 @@ public sealed class MainForm : Form
         startWithWindows = _settings.StartWithWindows,
         autoConnect = _settings.AutoConnect,
         autoUpdate = _settings.AutoUpdate,
+        theme = _settings.Theme,
     });
+
+    private static async Task WaitForNetworkAsync(TimeSpan max)
+    {
+        var deadline = DateTime.UtcNow + max;
+        while (DateTime.UtcNow < deadline)
+        {
+            bool ready = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces().Any(n =>
+                n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up &&
+                n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback &&
+                n.GetIPProperties().GatewayAddresses.Count > 0);
+            if (ready) return;
+            await Task.Delay(1000);
+        }
+    }
 
     private void ApplySetting(string key, bool value)
     {
@@ -637,6 +714,7 @@ public sealed class MainForm : Form
         _core.Dispose();
         _showWait.Unregister(null);
         _showEvent.Dispose();
+        Microsoft.Win32.SystemEvents.UserPreferenceChanged -= OnSystemPreferenceChanged; // statik olay: bırakılmazsa formu canlı tutar
         _tray.Visible = false;
         _tray.Dispose();
         base.OnFormClosing(e);

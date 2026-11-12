@@ -10,6 +10,8 @@ public sealed class AppSettings
     public bool StartWithWindows { get; set; }
     public bool AutoConnect { get; set; }
     public bool AutoUpdate { get; set; } = true;
+    /// <summary>"system" (Windows ayarını izle), "dark" veya "light".</summary>
+    public string Theme { get; set; } = "system";
 
     private static string FilePath => Path.Combine(CoreRunner.WorkDir, "settings.json");
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
